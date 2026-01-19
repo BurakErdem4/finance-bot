@@ -15,6 +15,7 @@ from database import init_db
 from rebalance_module import calculate_rebalance, get_rebalance_summary
 from analysis_module import calculate_sma, calculate_rsi, get_technical_signals
 from benchmark_module import get_benchmark_data, get_benchmark_summary
+from backtest_module import run_backtest
 
 # Veritabanını başlat
 init_db()
@@ -84,7 +85,7 @@ def format_price(val, currency="₺"):
 
 # Kenar Çubuğu (Navigasyon)
 st.sidebar.title("Finans Botu 🤖")
-page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Portföy Dengeleyici", "Raporlar", "Bilgi Notu"])
+page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Portföy Dengeleyici", "Strateji Testi", "Raporlar", "Bilgi Notu"])
 
 st.sidebar.markdown("---")
 
@@ -258,7 +259,55 @@ elif page == "Portföy Dengeleyici":
         st.subheader("İşlem Detayları")
         st.table(s_df.style.format({"Alınacak Tutar (TL)": "{:,.2f}"}))
 
-# --- 5. RAPORLAR (BENCHMARK) ---
+# --- 5. STRATEJİ TESTİ (BACKTEST) ---
+elif page == "Strateji Testi":
+    st.title("🧪 Strateji Testi (Backtest)")
+    st.markdown("Geçmiş veriler üzerinde stratejilerinizi test edin ve performansını ölçün.")
+    
+    b_col1, b_col2, b_col3 = st.columns(3)
+    
+    with b_col1:
+        backtest_symbol = st.text_input("Hisse/Fon Sembolü", "BTC-USD").upper()
+    with b_col2:
+        initial_cap = st.number_input("Başlangıç Sermayesi ($/TL)", value=1000, step=100)
+    with b_col3:
+        strategy_choice = st.selectbox("Strateji Seçimi", ['RSI Stratejisi (30/70)', 'SMA Cross (50/200)', 'Al ve Tut'])
+        
+    if st.button("Simülasyonu Başlat"):
+        with st.spinner(f"{backtest_symbol} için simülasyon çalıştırılıyor..."):
+            # Fetch 2 years for better SMA200 coverage
+            df_hist = get_yfinance_data(backtest_symbol, period="2y")
+            
+            if not df_hist.empty:
+                results = run_backtest(df_hist, strategy_choice, initial_cap)
+                
+                if results:
+                    metrics = results['metrics']
+                    equity_df = results['equity_curve']
+                    
+                    # Sonuç Metrikleri
+                    m_col1, m_col2, m_col3 = st.columns(3)
+                    m_col1.metric("Toplam Getiri", f"%{metrics['total_return_pct']}", delta=f"{metrics['total_return_pct']}%")
+                    m_col2.metric("Son Bakiye", f"{metrics['final_equity']:,} {config.SYMBOLS.get('currency', '')}")
+                    m_col3.metric("Toplam İşlem", metrics['trade_count'])
+                    
+                    st.markdown("---")
+                    
+                    # Performans Grafiği
+                    st.subheader("Performans Kıyaslaması (Strateji vs. Al-Tut)")
+                    fig_bt = px.line(equity_df, y=['Strategy_Equity', 'BuyHold_Equity'], 
+                                   labels={"value": "Sermaye Değeri", "index": "Tarih"},
+                                   title=f"{backtest_symbol} için {strategy_choice} Performansı")
+                    fig_bt.update_layout(template="plotly_dark", height=500)
+                    st.plotly_chart(fig_bt, use_container_width=True)
+                    
+                    st.info("💡 Not: Her işlemde %0.2 sanal komisyon kesilmiştir.")
+                else:
+                    st.error("Simülasyon sırasında hata oluştu.")
+            else:
+                st.warning(f"{backtest_symbol} için yeterli veri bulunamadı.")
+
+# --- 6. RAPORLAR (BENCHMARK) ---
 elif page == "Raporlar":
     st.title("📊 Kıyaslamalı Performans Raporu")
     st.markdown("Varlıkların son 1 yıllık performansını baz 100 üzerinden kıyaslayın.")
@@ -281,11 +330,11 @@ elif page == "Raporlar":
         fig.update_layout(template="plotly_dark", height=600)
         st.plotly_chart(fig, use_container_width=True)
         
-        st.info("💡 Not: Mevduat/Enflasyon eğrisi aylık birleşik %3.5 getiri baz alınarak simüle edilmiştir.")
+        st.info("💡 Not: Mevduat / Enflasyon eğrisi aylık birleşik %3.5 getiri baz alınarak simüle edilmiştir.")
     else:
         st.error("Benchmark verileri alınamadı.")
 
-# --- 6. BİLGİ NOTU ---
+# --- 7. BİLGİ NOTU ---
 elif page == "Bilgi Notu":
     st.title("📝 Günlük Bilgi Notu & Takvim")
     

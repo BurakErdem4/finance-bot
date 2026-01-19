@@ -3,14 +3,14 @@ import pandas as pd
 import streamlit as st
 import numpy as np
 
-@st.cache_data(ttl=3600)  # Benchmark data can be cached longer (1 hour)
+@st.cache_data(ttl=3600)
 def get_benchmark_data():
     """
     Fetches 1 year of historical data for USD, Gold, and BIST30.
     Normalizes data to Base 100.
     """
     symbols = {
-        "Dolar (USD/TRY)": "USDTRY=X",
+        "Dolar (USD/TRY)": "TRY=X",
         "Altın (Ons)": "GC=F",
         "BIST 30": "XU030.IS"
     }
@@ -19,23 +19,32 @@ def get_benchmark_data():
     
     for label, sym in symbols.items():
         try:
-            data = yf.Ticker(sym).history(period="1y")['Close']
+            # Fetch data with yfinance
+            ticker = yf.Ticker(sym)
+            data = ticker.history(period="1y")['Close']
+            
             if not data.empty:
-                # Basic cleaning and normalization
+                # Basic cleaning: forward fill gaps (holidays, weekends)
                 data = data.ffill()
+                # Normalize: Base 100
                 normalized = (data / data.iloc[0]) * 100
                 combined_df[label] = normalized
+            else:
+                st.error(f"{label} ({sym}) verisi Yahoo Finance'dan çekilemedi (Empty).")
+                print(f"Hata: {label} ({sym}) çekilemedi.")
+                
         except Exception as e:
-            print(f"Error fetching {label}: {e}")
+            st.error(f"{label} ({sym}) çekilirken hata oluştu: {e}")
+            print(f"Hata ({label}): {e}")
             
-    # Remove NaN values that might arise from different market holidays
-    combined_df = combined_df.dropna()
+    # Final data cleaning for combined dataframe
+    if not combined_df.empty:
+        # Fill any remaining NaNs across the whole dataframe (if symbols have different start dates)
+        combined_df = combined_df.ffill().dropna()
     
     # Add a synthetic "Mevduat / Enflasyon" line (e.g. 3.5% monthly compound)
     if not combined_df.empty:
-        # Calculate number of days in the data
         n_days = len(combined_df)
-        # 3.5% monthly is roughly (1.035^(1/21)) per trading day assuming 21 days/mo
         daily_rate = 1.035**(1/21)
         inflation_curve = [100 * (daily_rate ** i) for i in range(n_days)]
         combined_df["Mevduat / Enflasyon (%3.5 Aylık)"] = inflation_curve
