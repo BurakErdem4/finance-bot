@@ -30,6 +30,32 @@ def init_db():
             price REAL NOT NULL
         )
     ''')
+    
+    # Gölge Portföy (Paper Trading) Tablosu
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS paper_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            type TEXT NOT NULL,
+            quantity REAL NOT NULL,
+            price REAL NOT NULL,
+            commission REAL DEFAULT 0,
+            balance_after REAL
+        )
+    ''')
+    
+    # Paper Trading Ayarları/Bakiye
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS paper_settings (
+            key TEXT PRIMARY KEY,
+            value REAL
+        )
+    ''')
+    
+    # İlk bakiye tanımlama (Eğer yoksa)
+    cursor.execute("INSERT OR IGNORE INTO paper_settings (key, value) VALUES ('virtual_balance', 100000.0)")
+    
     conn.commit()
     conn.close()
     print(f"Veritabanı hazır: {DB_NAME}")

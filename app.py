@@ -19,6 +19,7 @@ from backtest_module import run_backtest, run_periodic_backtest
 from mail_module import send_daily_report
 from portfolio_manager import add_transaction, get_all_transactions, get_portfolio_balance, get_portfolio_by_category
 from sentiment_module import get_sentiment_score
+import paper_trader
 
 # Veritabanını başlat
 init_db()
@@ -101,7 +102,7 @@ def format_price(val, currency="₺"):
 
 # Kenar Çubuğu (Navigasyon)
 st.sidebar.title("Finans Botu 🤖")
-page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Portföy Dengeleyici", "Strateji Testi", "Cüzdanım", "Raporlar", "Bilgi Notu"])
+page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Portföy Dengeleyici", "Strateji Testi", "Cüzdanım", "👻 Gölge Portföy", "Raporlar", "Bilgi Notu"])
 
 st.sidebar.markdown("---")
 
@@ -447,7 +448,66 @@ elif page == "Cüzdanım":
     else:
         st.write("İşlem geçmişi bulunamadı.")
 
-# --- 7. RAPORLAR (BENCHMARK) ---
+# --- 7. GÖLGE PORTFÖY (PAPER TRADING) ---
+elif page == "👻 Gölge Portföy":
+    st.title("👻 Gölge Portföy (Paper Trading)")
+    st.markdown("Botun kendi kendine yaptığı sanal işlemleri ve performansını takip edin.")
+    
+    # Metrics
+    balance = paper_trader.get_virtual_balance()
+    initial_balance = 100000.0
+    total_profit = balance - initial_balance
+    profit_pct = (total_profit / initial_balance) * 100
+    
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Sanal Bakiye", f"{balance:,.2f} ₺")
+    c2.metric("Toplam Kar/Zarar", f"{total_profit:,.2f} ₺", delta=f"{profit_pct:.2f}%")
+    c3.info(f"Bot Stratejisi: \n- Teknik Puan > 80: AL \n- Teknik Puan < 40: SAT")
+    
+    st.markdown("---")
+    
+    # Bot Control
+    st.subheader("🤖 Bot Kontrol Merkezi")
+    if st.button("Botu Çalıştır (Piyasayı Tara & İşlem Yap)"):
+        with st.spinner("BIST30 Hisseleri taranıyor ve sinyaller kontrol ediliyor..."):
+            # Sample scanning list (can be expanded)
+            scan_list = ["THYAO", "EREGL", "ASELS", "SISE", "AKBNK", "KCHOL", "TUPRS", "SAHOL", "BIMAS"]
+            logs = paper_trader.run_paper_bot(scan_list)
+            
+            if logs:
+                for log in logs:
+                    st.write(log)
+            else:
+                st.info("Şu an için yeni bir sinyal veya satılacak pozisyon bulunmuyor.")
+        st.rerun()
+
+    st.markdown("---")
+    
+    # Open Positions
+    st.subheader("📦 Açık Pozisyonlar")
+    open_pos = paper_trader.get_open_paper_positions()
+    if open_pos:
+        pos_list = []
+        for sym, qty in open_pos.items():
+            try:
+                yf_sym = sym if "." in sym or "-" in sym else sym + ".IS"
+                curr_price = yf.Ticker(yf_sym).history(period="1d")['Close'].iloc[-1]
+                pos_list.append({"Sembol": sym, "Adet": round(qty, 2), "Güncel Fiyat": round(curr_price, 2)})
+            except:
+                pos_list.append({"Sembol": sym, "Adet": round(qty, 2), "Güncel Fiyat": "---"})
+        st.table(pos_list)
+    else:
+        st.info("Henüz bot tarafından açılmış bir sanal pozisyon bulunmuyor.")
+
+    # History
+    st.subheader("📜 Bot İşlem Geçmişi")
+    history = paper_trader.get_paper_history()
+    if not history.empty:
+        st.dataframe(history.drop(columns=['id']), use_container_width=True)
+    else:
+        st.write("Henüz bir işlem kaydı yok.")
+
+# --- 8. RAPORLAR (BENCHMARK) ---
 elif page == "Raporlar":
     st.title("📊 Kıyaslamalı Performans Raporu")
     st.markdown(f"Varlıkların son 1 yıllık performansı (Enflasyon Beklentisi: %{config.ANNUAL_INFLATION_RATE})")
