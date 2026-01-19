@@ -14,6 +14,7 @@ import config
 from database import init_db
 from rebalance_module import calculate_rebalance, get_rebalance_summary
 from analysis_module import calculate_sma, calculate_rsi, get_technical_signals
+from benchmark_module import get_benchmark_data, get_benchmark_summary
 
 # Veritabanını başlat
 init_db()
@@ -68,7 +69,6 @@ st.set_page_config(
 def get_yfinance_data(symbol, period="1y"):
     try:
         ticker = yf.Ticker(symbol)
-        # We use 1y to have enough data for SMA 200
         return ticker.history(period=period)
     except:
         return pd.DataFrame()
@@ -84,7 +84,7 @@ def format_price(val, currency="₺"):
 
 # Kenar Çubuğu (Navigasyon)
 st.sidebar.title("Finans Botu 🤖")
-page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Portföy Dengeleyici", "Bilgi Notu"])
+page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Portföy Dengeleyici", "Raporlar", "Bilgi Notu"])
 
 st.sidebar.markdown("---")
 
@@ -95,16 +95,42 @@ if page == "Piyasa Özeti":
     # Global Sembol Seçimi
     symbol_to_track = st.text_input("Takip Edilecek Sembol (Yfinance)", "AAPL").upper()
     
-    # Veri Çekme (Analiz için 1 yıllık veri alıyoruz)
+    # Veri Çekme
     with st.spinner(f"{symbol_to_track} verileri analiz ediliyor..."):
         symbol_hist_full = get_yfinance_data(symbol_to_track, period="1y")
     
-    # Detaylı Teknik Analiz (Market Summary version)
+    # Üst Bilgi Kartları (Metrics)
+    col1, col2, col3, col4 = st.columns(4)
+    
+    # Dolar ve Euro (Info modülünden)
+    market_data = get_market_summary()
+    
+    with col1:
+        st.metric("USD/TRY", format_price(market_data['usd']))
+    with col2:
+        st.metric("EUR/TRY", format_price(market_data['eur']))
+        
+    # BIST30
+    with col3:
+        try:
+            xu030 = bp.Index("XU030")
+            val = xu030.info.get('last') if hasattr(xu030, 'info') else "---"
+            st.metric("BIST 30", format_price(val))
+        except:
+            st.metric("BIST 30", "Hata")
+
+    # Dinamik Sembol
+    with col4:
+        if not symbol_hist_full.empty:
+            st.metric(f"Sembol ({symbol_to_track})", format_price(symbol_hist_full['Close'].iloc[-1], "$"))
+        else:
+            st.metric(f"Sembol ({symbol_to_track})", "Yüklenemedi")
+
+    st.markdown("---")
+    
+    # Detaylı Teknik Analiz
     if not symbol_hist_full.empty:
         display_technical_analysis(symbol_hist_full, symbol_to_track)
-    else:
-        st.warning(f"{symbol_to_track} için analiz verisi bulunamadı.")
-        
     else:
         st.warning(f"{symbol_to_track} için analiz verisi bulunamadı.")
 
@@ -116,6 +142,7 @@ if page == "Piyasa Özeti":
         xu030_hist = bp.Index("XU030").history(period="1ay")
         if xu030_hist is not None and not xu030_hist.empty:
             fig2 = px.line(xu030_hist, y="Close", title="BIST30 Kapanış")
+            fig2.update_layout(template="plotly_dark")
             st.plotly_chart(fig2, use_container_width=True)
     except Exception as e:
          st.error(f"Veri alınamadı: {e}")
@@ -143,7 +170,6 @@ elif page == "Hisse Tarama":
             selected_stock = st.selectbox("Analiz edilecek hisseyi seçin:", df['symbol'].tolist())
             
             if st.button("Teknik Analizi Göster"):
-                # Borsa İstanbul hisseleri için .IS son eki gerekebilir yfinance'da
                 yf_symbol = selected_stock + ".IS"
                 with st.spinner(f"{yf_symbol} analiz ediliyor..."):
                     stock_hist = get_yfinance_data(yf_symbol, period="1y")
@@ -182,6 +208,7 @@ elif page == "Fon Analizi":
                 
                 if name_col in alloc.columns and val_col in alloc.columns:
                     fig = px.pie(alloc, values=val_col, names=name_col, title=f"{fund_code} Portföy Dağılımı")
+                    fig.update_layout(template="plotly_dark")
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.dataframe(alloc)
@@ -221,6 +248,7 @@ elif page == "Portföy Dengeleyici":
         # Grafik ile gösterim
         s_df = pd.DataFrame(list(suggestions.items()), columns=["Kategori", "Alınacak Tutar (TL)"])
         fig = px.bar(s_df, x="Kategori", y="Alınacak Tutar (TL)", title="Yeni Yatırım Dağılımı")
+        fig.update_layout(template="plotly_dark")
         st.plotly_chart(fig, use_container_width=True)
         
         # Öneri Metni
@@ -230,7 +258,34 @@ elif page == "Portföy Dengeleyici":
         st.subheader("İşlem Detayları")
         st.table(s_df.style.format({"Alınacak Tutar (TL)": "{:,.2f}"}))
 
-# --- 5. BİLGİ NOTU ---
+# --- 5. RAPORLAR (BENCHMARK) ---
+elif page == "Raporlar":
+    st.title("📊 Kıyaslamalı Performans Raporu")
+    st.markdown("Varlıkların son 1 yıllık performansını baz 100 üzerinden kıyaslayın.")
+    
+    with st.spinner("Benchmark verileri çekiliyor..."):
+        benchmark_df = get_benchmark_data()
+        
+    if not benchmark_df.empty:
+        # Getiriler Özeti
+        summary = get_benchmark_summary(benchmark_df)
+        cols = st.columns(len(summary))
+        for i, (asset, ret) in enumerate(summary.items()):
+            cols[i].metric(asset, f"%{ret}")
+            
+        st.markdown("---")
+        
+        # Grafik
+        fig = px.line(benchmark_df, title="Son 1 Yıl Performans Kıyaslaması (Baz 100)",
+                     labels={"value": "Endeks Değeri", "index": "Tarih"})
+        fig.update_layout(template="plotly_dark", height=600)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.info("💡 Not: Mevduat/Enflasyon eğrisi aylık birleşik %3.5 getiri baz alınarak simüle edilmiştir.")
+    else:
+        st.error("Benchmark verileri alınamadı.")
+
+# --- 6. BİLGİ NOTU ---
 elif page == "Bilgi Notu":
     st.title("📝 Günlük Bilgi Notu & Takvim")
     
