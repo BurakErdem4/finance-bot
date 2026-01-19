@@ -173,8 +173,28 @@ if page == "Piyasa Özeti":
 
     with col5:
         with st.spinner("Sentiment analiz ediliyor..."):
-            sentiment = get_sentiment_score(symbol_to_track)
-            st.metric("Haber Algısı", sentiment['label'], delta=f"Skor: {sentiment['score']}")
+            s = get_sentiment_score(symbol_to_track)
+            
+            # Determine Color
+            if not s['is_fresh']:
+                bg_color = "#424242" # Gray
+            elif s['label'] == "POZİTİF":
+                bg_color = "#2E7D32" # Green
+            elif s['label'] == "NEGATİF":
+                bg_color = "#C62828" # Red
+            else:
+                bg_color = "#1565C0" # Blue/Neutral
+            
+            st.markdown(f"""
+            <div style="background-color:{bg_color}; padding:10px; border-radius:10px; color:white; text-align:center;">
+                <p style="margin:0; font-size:0.8em; opacity:0.8;">Haber Algısı ({s['time_label']})</p>
+                <h4 style="margin:0;">{s['label']}</h4>
+                <p style="margin:0; font-size:0.9em; font-weight:bold;">Skor: {s['score']}</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if not s['is_fresh']:
+                st.caption("⚠️ Güncel akış sağlanamadı, son haber gösteriliyor.")
 
     st.markdown("---")
     
