@@ -7,7 +7,7 @@ import numpy as np
 def get_benchmark_data():
     """
     Fetches 1 year of historical data for USD, Gold, and BIST30.
-    Normalizes data to Base 100.
+    Uses a master timeline to align different markets.
     """
     symbols = {
         "Dolar (USD/TRY)": "TRY=X",
@@ -15,40 +15,50 @@ def get_benchmark_data():
         "BIST 30": "XU030.IS"
     }
     
-    combined_df = pd.DataFrame()
+    # Create Master Timeline: All days in the last year
+    end_date = pd.Timestamp.now()
+    start_date = end_date - pd.DateOffset(years=1)
+    master_index = pd.date_range(start=start_date, end=end_date, freq='D')
+    combined_df = pd.DataFrame(index=master_index)
     
+    found_any = False
     for label, sym in symbols.items():
         try:
-            # Fetch data with yfinance
             ticker = yf.Ticker(sym)
-            data = ticker.history(period="1y")['Close']
+            data = ticker.history(start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))['Close']
             
             if not data.empty:
-                # Basic cleaning: forward fill gaps (holidays, weekends)
-                data = data.ffill()
-                # Normalize: Base 100
-                normalized = (data / data.iloc[0]) * 100
-                combined_df[label] = normalized
-            else:
-                st.error(f"{label} ({sym}) verisi Yahoo Finance'dan çekilemedi (Empty).")
-                print(f"Hata: {label} ({sym}) çekilemedi.")
+                # Remove timezone if exists for joining
+                if data.index.tz is not None:
+                    data.index = data.index.tz_localize(None)
                 
+                # Join with master timeline
+                combined_df[label] = data
+                found_any = True
+            else:
+                st.warning(f"⚠️ {label} verisi çekilemedi, grafikten çıkarıldı.")
         except Exception as e:
-            st.error(f"{label} ({sym}) çekilirken hata oluştu: {e}")
-            print(f"Hata ({label}): {e}")
+            st.warning(f"⚠️ {label} hatası: {e}")
             
-    # Final data cleaning for combined dataframe
-    if not combined_df.empty:
-        # Fill any remaining NaNs across the whole dataframe (if symbols have different start dates)
-        combined_df = combined_df.ffill().dropna()
-    
-    # Add a synthetic "Mevduat / Enflasyon" line (e.g. 3.5% monthly compound)
-    if not combined_df.empty:
-        n_days = len(combined_df)
-        daily_rate = 1.035**(1/21)
-        inflation_curve = [100 * (daily_rate ** i) for i in range(n_days)]
-        combined_df["Mevduat / Enflasyon (%3.5 Aylık)"] = inflation_curve
+    if not found_any:
+        return pd.DataFrame()
         
+    # Data Cleaning: Forward fill (holidays/weekends) and normalize
+    # We drop columns that are entirely NaN
+    combined_df = combined_df.dropna(axis=1, how='all')
+    
+    # Forward fill gaps
+    combined_df = combined_df.ffill()
+    
+    # Backfill if the start of the year is empty (rare but possible)
+    combined_df = combined_df.bfill()
+    
+    # Normalize: Base 100 based on the first available valid price
+    for col in combined_df.columns:
+        first_valid = combined_df[col].iloc[0]
+        if first_valid != 0:
+            combined_df[col] = (combined_df[col] / first_valid) * 100
+            
     return combined_df
 
 import config

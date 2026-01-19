@@ -195,6 +195,8 @@ if page == "Piyasa Özeti":
             
             if not s['is_fresh']:
                 st.caption("⚠️ Güncel akış sağlanamadı, son haber gösteriliyor.")
+            
+            st.caption(f"📢 Analiz Edilen Haber: {s['title']}")
 
     st.markdown("---")
     
