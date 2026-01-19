@@ -71,62 +71,81 @@ import streamlit as st
 
 def run_paper_bot(symbols, force_trade=False):
     """
-    Analyzes symbols and executes paper trades based on technical score.
-    Now includes live progress updates via st.status.
+    Analyzes all symbols first, ranks them by score, and picks the BEST one.
+    Scan & Sort Strategy.
     """
     logs = []
-    trades_made = 0
+    scanned_results = []
     open_pos = get_open_paper_positions()
     
-    with st.status("🔍 Piyasa Taranıyor...", expanded=True) as status:
+    with st.status("🔍 Piyasa Taranıyor (Best-Pick Modu)...", expanded=True) as status:
         for sym in symbols:
             try:
-                st.write(f"⏳ **{sym}** taranıyor...")
+                st.write(f"⏳ **{sym}** analiz ediliyor...")
                 yf_sym = sym if "." in sym or "-" in sym else sym + ".IS"
                 hist = yf.Ticker(yf_sym).history(period="1y")
                 
                 if hist.empty:
-                    st.write(f"⚠️ {sym} için veri çekilemedi.")
+                    st.write(f"⚠️ {sym} verisi çekilemedi.")
                     continue
                 
                 signal = get_technical_signals(hist)
                 score = signal['score']
                 price = hist['Close'].iloc[-1]
                 
-                # 1. SELL Logic
-                if sym in open_pos:
-                    if score < 40 or (force_trade and trades_made == 0):
-                        qty = open_pos[sym]
-                        success, msg = execute_paper_trade(sym, 'SELL', qty, price)
-                        log_msg = f"📉 **{sym} taranıyor...** Puan: {score} (SAT EMRİ!)"
-                        st.write(log_msg)
-                        logs.append(f"🤖 {log_msg}: {msg}")
-                        trades_made += 1
-                    else:
-                        st.write(f"✅ {sym} taranıyor... Puan: {score} (Pozisyon Korunuyor)")
-                        
-                # 2. BUY Logic
-                elif sym not in open_pos:
-                    if score > 80 or (force_trade and trades_made == 0):
-                        balance = get_virtual_balance()
-                        investment = balance * 0.10
-                        qty = investment / price
-                        success, msg = execute_paper_trade(sym, 'BUY', qty, price)
-                        log_msg = f"🚀 **{sym} taranıyor...** Puan: {score} (AL EMRİ!)"
-                        st.write(log_msg)
-                        logs.append(f"🤖 {log_msg}: {msg}")
-                        trades_made += 1
-                    else:
-                        st.write(f"💠 {sym} taranıyor... Puan: {score} (Yetersiz - Hedef > 80)")
+                scanned_results.append({
+                    "symbol": sym,
+                    "score": score,
+                    "price": price
+                })
+                st.write(f"📊 {sym}: Puan **{score}**")
                         
             except Exception as e:
                 st.write(f"❌ {sym} hatası: {str(e)}")
-                logs.append(f"❌ {sym} hatası: {str(e)}")
         
-        status.update(label="✅ Tarama Tamamlandı", state="complete", expanded=False)
+        # Sort by score descending
+        scanned_results = sorted(scanned_results, key=lambda x: x['score'], reverse=True)
+        
+        status.update(label="✅ Tarama Tamamlandı. Karar Aşaması...", state="complete", expanded=False)
 
-    if trades_made == 0:
-        st.info("ℹ️ **Tarama Tamamlandı.** Mevcut piyasa koşullarında 80 üzeri puana sahip hisse bulunamadı.")
+    if not scanned_results:
+        st.warning("Hiçbir hisse senedi verisi analiz edilemedi.")
+        return []
+
+    # Karar Mekanizması
+    best_pick = scanned_results[0]
+    best_sym = best_pick['symbol']
+    best_score = best_pick['score']
+    best_price = best_pick['price']
+
+    # 1. SELL Check (Existing positions)
+    # We still check for sales normally or we can keep it as is.
+    # User's request focused on BUYING logic, but let's maintain sanity for SELLING too.
+    for sym in open_pos:
+        # If open position score is bad, sell.
+        # Finding the current score for the open position from our scan
+        match = next((item for item in scanned_results if item["symbol"] == sym), None)
+        if match and match['score'] < 40:
+            qty = open_pos[sym]
+            success, msg = execute_paper_trade(sym, 'SELL', qty, match['price'])
+            logs.append(f"🤖 **{sym}** SATILDI (Düşük Puan: {match['score']}): {msg}")
+
+    # 2. BUY Logic (Best-Pick)
+    if best_sym not in open_pos:
+        if best_score > 80 or force_trade:
+            reason = "Güçlü Sinyal (>80)" if best_score > 80 else f"Test Modu (En yüksek puan: {best_score})"
+            st.success(f"🏆 **Kazanan Hisse: {best_sym} ({best_score} Puan)**")
+            st.info(f"💡 Neden: {reason}. Alım emri giriliyor...")
+            
+            balance = get_virtual_balance()
+            investment = balance * 0.10
+            qty = investment / best_price
+            success, msg = execute_paper_trade(best_sym, 'BUY', qty, best_price)
+            logs.append(f"🤖 **{best_sym}** ALINDI ({best_score} Puan): {msg}")
+        else:
+            st.info(f"ℹ️ **En iyi tercih {best_sym} ({best_score} Puan)** ancak hedef 80+ puan bulunamadı.")
+    else:
+        st.info(f"ℹ️ En yüksek puanlı hisse {best_sym} zaten portföyünüzde bulunuyor.")
             
     return logs
 
