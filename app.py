@@ -18,6 +18,7 @@ from benchmark_module import get_benchmark_data, get_benchmark_summary
 from backtest_module import run_backtest, run_periodic_backtest
 from mail_module import send_daily_report
 from portfolio_manager import add_transaction, get_all_transactions, get_portfolio_balance, get_portfolio_by_category
+from sentiment_module import get_sentiment_score
 
 # Veritabanını başlat
 init_db()
@@ -147,7 +148,7 @@ if page == "Piyasa Özeti":
         symbol_hist_full = get_yfinance_data(symbol_to_track, period="1y")
     
     # Üst Bilgi Kartları (Metrics)
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     market_data = get_market_summary()
     
     with col1:
@@ -168,6 +169,11 @@ if page == "Piyasa Özeti":
             st.metric(f"Sembol ({symbol_to_track})", format_price(symbol_hist_full['Close'].iloc[-1], "$"))
         else:
             st.metric(f"Sembol ({symbol_to_track})", "Yüklenemedi")
+
+    with col5:
+        with st.spinner("Sentiment analiz ediliyor..."):
+            sentiment = get_sentiment_score(symbol_to_track)
+            st.metric("Haber Algısı", sentiment['label'], delta=f"Skor: {sentiment['score']}")
 
     st.markdown("---")
     
@@ -444,16 +450,25 @@ elif page == "Cüzdanım":
 # --- 7. RAPORLAR (BENCHMARK) ---
 elif page == "Raporlar":
     st.title("📊 Kıyaslamalı Performans Raporu")
-    st.markdown("Varlıkların son 1 yıllık performansını baz 100 üzerinden kıyaslayın.")
+    st.markdown(f"Varlıkların son 1 yıllık performansı (Enflasyon Beklentisi: %{config.ANNUAL_INFLATION_RATE})")
     
     with st.spinner("Benchmark verileri çekiliyor..."):
         benchmark_df = get_benchmark_data()
         
     if not benchmark_df.empty:
         summary = get_benchmark_summary(benchmark_df)
-        cols = st.columns(len(summary))
-        for i, (asset, ret) in enumerate(summary.items()):
-            cols[i].metric(asset, f"%{ret}")
+        
+        # Display Metrics in a Table for clarity
+        report_table = []
+        for asset, stats in summary.items():
+            report_table.append({
+                "Varlık": asset,
+                "Nominal Getiri (%)": stats['nominal'],
+                "Reel Getiri (%)": stats['real'],
+                "Sharpe Oranı": stats['sharpe']
+            })
+        
+        st.table(pd.DataFrame(report_table))
             
         st.markdown("---")
         
@@ -462,7 +477,7 @@ elif page == "Raporlar":
         fig.update_layout(template="plotly_dark", height=600)
         st.plotly_chart(fig, use_container_width=True)
         
-        st.info("💡 Not: Mevduat / Enflasyon eğrisi aylık birleşik %3.5 getiri baz alınarak simüle edilmiştir.")
+        st.info(f"💡 Sharpe Oranı > 1.0 olması risk başına alınan getirinin tatminkar olduğunu gösterir. Reel getiri %{config.ANNUAL_INFLATION_RATE} enflasyon düşüldükten sonra kalan net kazançtır.")
     else:
         st.error("Benchmark verileri alınamadı.")
 

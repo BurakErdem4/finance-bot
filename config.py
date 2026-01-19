@@ -12,8 +12,11 @@ PORTFOLIO_TARGETS = {
     "Teknoloji": 45,
     "Yerli Hisse": 30,
     "Eurobond": 15,
-    "Emtia": 10
+    "Sasa": "SASA.IS"
 }
+
+ANNUAL_INFLATION_RATE = 45 # %45
+RISK_FREE_RATE = 0.40 # %40 (Mevduat/Tahvil tahmini)
 
 # Sembol - Kategori Eşleşmesi (Dengeleyici için)
 SYMBOL_CATEGORIES = {
