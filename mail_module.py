@@ -8,9 +8,9 @@ import borsapy as bp
 import pandas as pd
 from datetime import datetime
 
-def send_daily_report():
+def send_daily_report(target_email, report_type="Günlük"):
     """
-    Sends a daily financial summary report via email using Gmail SMTP.
+    Sends a financial summary report via email using Gmail SMTP.
     Credentials must be in st.secrets['GMAIL_USER'] and st.secrets['GMAIL_PASSWORD'].
     """
     try:
@@ -29,19 +29,21 @@ def send_daily_report():
         # 2. Get Credentials
         sender_email = st.secrets["GMAIL_USER"]
         password = st.secrets["GMAIL_PASSWORD"]
-        receiver_email = sender_email # Self-report
         
         # 3. Create HTML Template
+        subject = "Haftalık Finans Özeti" if report_type == "Haftalık" else "Günlük Finans Raporu"
+        title = "📅 Haftalık Finans Özeti" if report_type == "Haftalık" else "📉 Günlük Finans Raporu"
+        
         message = MIMEMultipart("alternative")
-        message["Subject"] = f"Günlük Finans Raporu - {report_date}"
+        message["Subject"] = f"{subject} - {report_date}"
         message["From"] = sender_email
-        message["To"] = receiver_email
+        message["To"] = target_email
         
         html = f"""
         <html>
         <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
             <div style="background-color: #ffffff; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-                <h1 style="color: #333;">📉 Günlük Finans Raporu</h1>
+                <h1 style="color: #333;">{title}</h1>
                 <p style="color: #666;">Tarih: {report_date}</p>
                 <hr style="border: 0; border-top: 1px solid #eee;">
                 <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
@@ -62,7 +64,7 @@ def send_daily_report():
                         <td style="padding: 10px; border: 1px solid #ddd;">{bist30}</td>
                     </tr>
                 </table>
-                <p style="margin-top: 30px; font-size: 12px; color: #999;">Bu rapor Finans Botu tarafından otomatik olarak oluşturulmuştur.</p>
+                <p style="margin-top: 30px; font-size: 12px; color: #999;">Bu {report_type.lower()} rapor Finans Botu tarafından otomatik olarak oluşturulmuştur.</p>
             </div>
         </body>
         </html>
@@ -75,7 +77,7 @@ def send_daily_report():
         context = ssl.create_default_context()
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
             server.login(sender_email, password)
-            server.sendmail(sender_email, receiver_email, message.as_string())
+            server.sendmail(sender_email, target_email, message.as_string())
             
         return True, "Rapor başarıyla gönderildi!"
         

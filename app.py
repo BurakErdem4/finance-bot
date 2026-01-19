@@ -90,10 +90,14 @@ page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi"
 
 st.sidebar.markdown("---")
 
-# 📧 Mail Raporlama Butonu
-if st.sidebar.button("📧 Raporu Kendime Mail At"):
+# 📧 Mail Raporlama
+st.sidebar.subheader("📧 Rapor Gönder")
+target_email = st.sidebar.text_input("Alıcı Maili", st.secrets.get("GMAIL_USER", ""))
+report_type = st.sidebar.selectbox("Rapor Tipi", ["Günlük", "Haftalık"])
+
+if st.sidebar.button("Gönder"):
     with st.spinner("Rapor gönderiliyor..."):
-        success, message = send_daily_report()
+        success, message = send_daily_report(target_email, report_type)
         if success:
             st.sidebar.success(message)
         else:
