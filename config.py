@@ -15,6 +15,22 @@ PORTFOLIO_TARGETS = {
     "Emtia": 10
 }
 
+# Sembol - Kategori Eşleşmesi (Dengeleyici için)
+SYMBOL_CATEGORIES = {
+    "AAPL": "Teknoloji",
+    "MSFT": "Teknoloji",
+    "GOOGL": "Teknoloji",
+    "QQQM": "Teknoloji",
+    "THYAO": "Yerli Hisse",
+    "SISE": "Yerli Hisse",
+    "EREGL": "Yerli Hisse",
+    "IPV": "Eurobond",
+    "TCD": "Yerli Hisse",
+    "XU030": "Yerli Hisse",
+    "GC=F": "Emtia",
+    "TRY=X": "Nakit" # Örnek
+}
+
 # Mevcut Portföy Durumu (Örnek Veri)
 CURRENT_PORTFOLIO = {
     "Teknoloji": 15000,

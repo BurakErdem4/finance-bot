@@ -68,3 +68,33 @@ def get_portfolio_balance():
             })
 
     return summary
+
+def get_portfolio_by_category():
+    """
+    Groups current holdings by category defined in config.SYMBOL_CATEGORIES.
+    Returns: Dict {'Category': current_market_value}
+    """
+    import yfinance as yf
+    import config
+    
+    holdings = get_portfolio_balance()
+    category_totals = {}
+    
+    for h in holdings:
+        sym = h['symbol']
+        # Find category
+        category = config.SYMBOL_CATEGORIES.get(sym, "Diğer")
+        
+        # Get current price
+        yf_sym = sym if "-" in sym or "." in sym else sym + ".IS"
+        try:
+            ticker = yf.Ticker(yf_sym)
+            curr_price = ticker.history(period="1d")['Close'].iloc[-1]
+        except:
+            curr_price = h['avg_cost']
+            
+        curr_total_val = curr_price * h['quantity']
+        
+        category_totals[category] = category_totals.get(category, 0) + curr_total_val
+        
+    return category_totals

@@ -17,7 +17,7 @@ from analysis_module import calculate_sma, calculate_rsi, get_technical_signals
 from benchmark_module import get_benchmark_data, get_benchmark_summary
 from backtest_module import run_backtest
 from mail_module import send_daily_report
-from portfolio_manager import add_transaction, get_all_transactions, get_portfolio_balance
+from portfolio_manager import add_transaction, get_all_transactions, get_portfolio_balance, get_portfolio_by_category
 
 # Veritabanını başlat
 init_db()
@@ -110,7 +110,33 @@ st.sidebar.markdown("---")
 if page == "Piyasa Özeti":
     st.title("📊 Piyasa Özeti")
     
-    # Global Sembol Seçimi
+    # A. Gerçek Portföy Özeti (En Üstte)
+    holdings = get_portfolio_balance()
+    if holdings:
+        # Toplam değeri hesapla
+        total_portfolio_val = 0
+        pie_data = []
+        for h in holdings:
+            sym = h['symbol']
+            yf_sym = sym if "-" in sym or "." in sym else sym + ".IS"
+            try:
+                curr_price = yf.Ticker(yf_sym).history(period="1d")['Close'].iloc[-1]
+            except:
+                curr_price = h['avg_cost']
+            val = curr_price * h['quantity']
+            total_portfolio_val += val
+            pie_data.append({"Sembol": sym, "Değer": val})
+        
+        st.metric("💰 Toplam Portföy Değeri", f"{total_portfolio_val:,.2f} ₺")
+        
+        # Pasta Grafik
+        pie_df = pd.DataFrame(pie_data)
+        fig_pie = px.pie(pie_df, values="Değer", names="Sembol", title="Cüzdan Dağılımı (Gerçek)")
+        fig_pie.update_layout(template="plotly_dark", height=400)
+        st.plotly_chart(fig_pie, use_container_width=True)
+        st.markdown("---")
+
+    # B. Global Sembol Seçimi
     symbol_to_track = st.text_input("Takip Edilecek Sembol (Yfinance)", "AAPL").upper()
     
     # Veri Çekme
@@ -119,8 +145,6 @@ if page == "Piyasa Özeti":
     
     # Üst Bilgi Kartları (Metrics)
     col1, col2, col3, col4 = st.columns(4)
-    
-    # Dolar ve Euro (Info modülünden)
     market_data = get_market_summary()
     
     with col1:
@@ -128,7 +152,6 @@ if page == "Piyasa Özeti":
     with col2:
         st.metric("EUR/TRY", format_price(market_data['eur']))
         
-    # BIST30
     with col3:
         try:
             xu030 = bp.Index("XU030")
@@ -137,7 +160,6 @@ if page == "Piyasa Özeti":
         except:
             st.metric("BIST 30", "Hata")
 
-    # Dinamik Sembol
     with col4:
         if not symbol_hist_full.empty:
             st.metric(f"Sembol ({symbol_to_track})", format_price(symbol_hist_full['Close'].iloc[-1], "$"))
@@ -146,24 +168,10 @@ if page == "Piyasa Özeti":
 
     st.markdown("---")
     
-    # Detaylı Teknik Analiz
     if not symbol_hist_full.empty:
         display_technical_analysis(symbol_hist_full, symbol_to_track)
     else:
         st.warning(f"{symbol_to_track} için analiz verisi bulunamadı.")
-
-    st.markdown("---")
-    
-    # BIST 30 Grafiği (Alt Kısım)
-    st.subheader("🇹🇷 BIST 30 (Son 1 Ay)")
-    try:
-        xu030_hist = bp.Index("XU030").history(period="1ay")
-        if xu030_hist is not None and not xu030_hist.empty:
-            fig2 = px.line(xu030_hist, y="Close", title="BIST30 Kapanış")
-            fig2.update_layout(template="plotly_dark")
-            st.plotly_chart(fig2, use_container_width=True)
-    except Exception as e:
-         st.error(f"Veri alınamadı: {e}")
 
 # --- 2. HİSSE TARAMA ---
 elif page == "Hisse Tarama":
@@ -238,16 +246,26 @@ elif page == "Portföy Dengeleyici":
     st.title("⚖️ Portföy Dengeleyici (Smart Rebalance)")
     st.markdown("Yeni yatırımlarınızı hedef portföy yüzdelerinize göre otomatik olarak dağıtın.")
     
-    # 1. Mevcut Durumu Göster
-    st.subheader("Mevcut Portföy Dağılımı")
-    current_df = pd.DataFrame(list(config.CURRENT_PORTFOLIO.items()), columns=["Kategori", "Mevcut Değer (TL)"])
-    current_df["Hedef (%)"] = current_df["Kategori"].map(config.PORTFOLIO_TARGETS)
+    # 1. Mevcut Durumu Göster (GERÇEK VERİLERDEN)
+    st.subheader("Mevcut Portföy Dağılımı (Gerçek)")
+    real_portfolio = get_portfolio_by_category()
+    
+    if not real_portfolio:
+        st.warning("Henüz cüzdanınızda varlık bulunmuyor. Lütfen 'Cüzdanım' sayfasından işlem ekleyin veya hedef analizi için örnek verileri kontrol edin.")
+        # Fallback to empty context or sample if requested
+        real_portfolio = {cat: 0 for cat in config.PORTFOLIO_TARGETS}
+
+    current_df = pd.DataFrame(list(real_portfolio.items()), columns=["Kategori", "Mevcut Değer (TL)"])
+    current_df["Hedef (%)"] = current_df["Kategori"].map(config.PORTFOLIO_TARGETS).fillna(0)
     
     total_val = current_df["Mevcut Değer (TL)"].sum()
-    current_df["Mevcut (%)"] = (current_df["Mevcut Değer (TL)"] / total_val * 100).round(2)
+    if total_val > 0:
+        current_df["Mevcut (%)"] = (current_df["Mevcut Değer (TL)"] / total_val * 100).round(2)
+    else:
+        current_df["Mevcut (%)"] = 0
     
     st.table(current_df)
-    st.write(f"**Toplam Portföy Değeri:** {total_val:,.2f} TL")
+    st.write(f"**Toplam Portföy Değeri:** {total_val:,.2f} ₺")
     
     st.markdown("---")
     
@@ -257,22 +275,19 @@ elif page == "Portföy Dengeleyici":
     if st.button("Hesapla"):
         suggestions = calculate_rebalance(
             new_investment, 
-            config.CURRENT_PORTFOLIO, 
+            real_portfolio, 
             config.PORTFOLIO_TARGETS
         )
         
         st.success("✅ Dağıtım Önerisi Hazır")
         
-        # Grafik ile gösterim
         s_df = pd.DataFrame(list(suggestions.items()), columns=["Kategori", "Alınacak Tutar (TL)"])
         fig = px.bar(s_df, x="Kategori", y="Alınacak Tutar (TL)", title="Yeni Yatırım Dağılımı")
         fig.update_layout(template="plotly_dark")
         st.plotly_chart(fig, use_container_width=True)
         
-        # Öneri Metni
         st.info(get_rebalance_summary(suggestions))
         
-        # Detaylı Tablo
         st.subheader("İşlem Detayları")
         st.table(s_df.style.format({"Alınacak Tutar (TL)": "{:,.2f}"}))
 
@@ -303,7 +318,7 @@ elif page == "Strateji Testi":
                     
                     m_col1, m_col2, m_col3 = st.columns(3)
                     m_col1.metric("Toplam Getiri", f"%{metrics['total_return_pct']}", delta=f"{metrics['total_return_pct']}%")
-                    m_col2.metric("Son Bakiye", f"{metrics['final_equity']:,} {config.SYMBOLS.get('currency', '')}")
+                    m_col2.metric("Son Bakiye", f"{metrics['final_equity']:,} {config.SYMBOLS.get('currency', '₺')}")
                     m_col3.metric("Toplam İşlem", metrics['trade_count'])
                     
                     st.markdown("---")
@@ -325,7 +340,6 @@ elif page == "Strateji Testi":
 elif page == "Cüzdanım":
     st.title("💰 Cüzdanım (Portföy Takibi)")
     
-    # 1. Yeni İşlem Ekleme Formu
     st.subheader("➕ Yeni İşlem Ekle")
     with st.form("transaction_form", clear_on_submit=True):
         col1, col2, col3 = st.columns(3)
@@ -343,31 +357,25 @@ elif page == "Cüzdanım":
             if t_symbol:
                 add_transaction(t_date.strftime("%Y-%m-%d"), t_symbol, t_type, t_qty, t_price)
                 st.success(f"{t_symbol} {t_type} işlemi başarıyla kaydedildi!")
+                st.rerun()
             else:
                 st.error("Lütfen bir sembol giriniz.")
 
     st.markdown("---")
     
-    # 2. Mevcut Varlıklar Özeti
     st.subheader("📂 Mevcut Varlıklarım")
     holdings = get_portfolio_balance()
     
     if holdings:
-        h_df = pd.DataFrame(holdings)
-        h_df.columns = ["Sembol", "Adet", "Ort. Maliyet", "Toplam Maliyet"]
-        
-        # Güncel fiyatları çek ve kar/zarar durumunu göster
         with st.spinner("Güncel fiyatlar veritabanından alınıyor..."):
             current_vals = []
             for h in holdings:
-                # yfinance ile güncel fiyatı al (BIST için .IS eklemesi gerekebilir)
                 sym = h['symbol']
                 yf_sym = sym if "-" in sym or "." in sym else sym + ".IS"
-                ticker = yf.Ticker(yf_sym)
                 try:
-                    curr_price = ticker.history(period="1d")['Close'].iloc[-1]
+                    curr_price = yf.Ticker(yf_sym).history(period="1d")['Close'].iloc[-1]
                 except:
-                    curr_price = h['avg_cost'] # Hata olursa maliyeti göster
+                    curr_price = h['avg_cost']
                 
                 curr_total = curr_price * h['quantity']
                 profit = curr_total - h['total_invested']
@@ -392,7 +400,6 @@ elif page == "Cüzdanım":
             "Kar/Zarar (%)": "%{:.2f}"
         }))
         
-        # Toplam Portföy Özeti
         total_curr = res_df["Güncel Değer"].sum()
         total_cost = sum([h['total_invested'] for h in holdings])
         total_profit = total_curr - total_cost
@@ -400,14 +407,13 @@ elif page == "Cüzdanım":
         m1, m2, m3 = st.columns(3)
         m1.metric("Portföy Değeri", f"{total_curr:,.2f} ₺")
         m2.metric("Toplam Maliyet", f"{total_cost:,.2f} ₺")
-        m3.metric("Toplam Kar/Zarar", f"{total_profit:,.2f} ₺", delta=f"{total_profit:,.2f}")
+        m3.metric("Toplam Kar/Zarar", f"{total_profit:,.2f} ₺", delta=f"{total_profit:,.2f} ₺")
     else:
         st.info("Henüz bir işleminiz bulunmuyor.")
 
     st.markdown("---")
     
-    # 3. İşlem Geçmişi
-    st.subheader("📜 İşlem Geçmişim")
+    st.subheader("📜 İşlem Geçmişi")
     history = get_all_transactions()
     if not history.empty:
         st.dataframe(history.drop(columns=['id']), use_container_width=True)
