@@ -20,6 +20,16 @@ def init_db():
         )
     ''')
     
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            type TEXT NOT NULL,
+            quantity REAL NOT NULL,
+            price REAL NOT NULL
+        )
+    ''')
     conn.commit()
     conn.close()
     print(f"Veritabanı hazır: {DB_NAME}")

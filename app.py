@@ -17,6 +17,7 @@ from analysis_module import calculate_sma, calculate_rsi, get_technical_signals
 from benchmark_module import get_benchmark_data, get_benchmark_summary
 from backtest_module import run_backtest
 from mail_module import send_daily_report
+from portfolio_manager import add_transaction, get_all_transactions, get_portfolio_balance
 
 # Veritabanını başlat
 init_db()
@@ -86,7 +87,7 @@ def format_price(val, currency="₺"):
 
 # Kenar Çubuğu (Navigasyon)
 st.sidebar.title("Finans Botu 🤖")
-page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Portföy Dengeleyici", "Strateji Testi", "Raporlar", "Bilgi Notu"])
+page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Portföy Dengeleyici", "Strateji Testi", "Cüzdanım", "Raporlar", "Bilgi Notu"])
 
 st.sidebar.markdown("---")
 
@@ -291,7 +292,6 @@ elif page == "Strateji Testi":
         
     if st.button("Simülasyonu Başlat"):
         with st.spinner(f"{backtest_symbol} için simülasyon çalıştırılıyor..."):
-            # Fetch 2 years for better SMA200 coverage
             df_hist = get_yfinance_data(backtest_symbol, period="2y")
             
             if not df_hist.empty:
@@ -301,7 +301,6 @@ elif page == "Strateji Testi":
                     metrics = results['metrics']
                     equity_df = results['equity_curve']
                     
-                    # Sonuç Metrikleri
                     m_col1, m_col2, m_col3 = st.columns(3)
                     m_col1.metric("Toplam Getiri", f"%{metrics['total_return_pct']}", delta=f"{metrics['total_return_pct']}%")
                     m_col2.metric("Son Bakiye", f"{metrics['final_equity']:,} {config.SYMBOLS.get('currency', '')}")
@@ -309,7 +308,6 @@ elif page == "Strateji Testi":
                     
                     st.markdown("---")
                     
-                    # Performans Grafiği
                     st.subheader("Performans Kıyaslaması (Strateji vs. Al-Tut)")
                     fig_bt = px.line(equity_df, y=['Strategy_Equity', 'BuyHold_Equity'], 
                                    labels={"value": "Sermaye Değeri", "index": "Tarih"},
@@ -323,7 +321,100 @@ elif page == "Strateji Testi":
             else:
                 st.warning(f"{backtest_symbol} için yeterli veri bulunamadı.")
 
-# --- 6. RAPORLAR (BENCHMARK) ---
+# --- 6. CÜZDANIM (PORTFOLIO) ---
+elif page == "Cüzdanım":
+    st.title("💰 Cüzdanım (Portföy Takibi)")
+    
+    # 1. Yeni İşlem Ekleme Formu
+    st.subheader("➕ Yeni İşlem Ekle")
+    with st.form("transaction_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            t_date = st.date_input("İşlem Tarihi")
+            t_symbol = st.text_input("Hisse Sembolü (Örn: THYAO, AAPL)").upper()
+        with col2:
+            t_type = st.selectbox("İşlem Türü", ["BUY", "SELL"])
+            t_qty = st.number_input("Adet", min_value=0.01, step=0.1)
+        with col3:
+            t_price = st.number_input("Birim Fiyat", min_value=0.01, step=0.01)
+            submitted = st.form_submit_button("İşlemi Kaydet")
+            
+        if submitted:
+            if t_symbol:
+                add_transaction(t_date.strftime("%Y-%m-%d"), t_symbol, t_type, t_qty, t_price)
+                st.success(f"{t_symbol} {t_type} işlemi başarıyla kaydedildi!")
+            else:
+                st.error("Lütfen bir sembol giriniz.")
+
+    st.markdown("---")
+    
+    # 2. Mevcut Varlıklar Özeti
+    st.subheader("📂 Mevcut Varlıklarım")
+    holdings = get_portfolio_balance()
+    
+    if holdings:
+        h_df = pd.DataFrame(holdings)
+        h_df.columns = ["Sembol", "Adet", "Ort. Maliyet", "Toplam Maliyet"]
+        
+        # Güncel fiyatları çek ve kar/zarar durumunu göster
+        with st.spinner("Güncel fiyatlar veritabanından alınıyor..."):
+            current_vals = []
+            for h in holdings:
+                # yfinance ile güncel fiyatı al (BIST için .IS eklemesi gerekebilir)
+                sym = h['symbol']
+                yf_sym = sym if "-" in sym or "." in sym else sym + ".IS"
+                ticker = yf.Ticker(yf_sym)
+                try:
+                    curr_price = ticker.history(period="1d")['Close'].iloc[-1]
+                except:
+                    curr_price = h['avg_cost'] # Hata olursa maliyeti göster
+                
+                curr_total = curr_price * h['quantity']
+                profit = curr_total - h['total_invested']
+                profit_pct = (profit / h['total_invested']) * 100
+                
+                current_vals.append({
+                    "Sembol": sym,
+                    "Adet": h['quantity'],
+                    "Maliyet": h['avg_cost'],
+                    "Güncel Fiyat": round(curr_price, 2),
+                    "Güncel Değer": round(curr_total, 2),
+                    "Kar/Zarar": round(profit, 2),
+                    "Kar/Zarar (%)": round(profit_pct, 2)
+                })
+        
+        res_df = pd.DataFrame(current_vals)
+        st.table(res_df.style.format({
+            "Maliyet": "{:.2f} ₺",
+            "Güncel Fiyat": "{:.2f} ₺",
+            "Güncel Değer": "{:,.2f} ₺",
+            "Kar/Zarar": "{:,.2f} ₺",
+            "Kar/Zarar (%)": "%{:.2f}"
+        }))
+        
+        # Toplam Portföy Özeti
+        total_curr = res_df["Güncel Değer"].sum()
+        total_cost = sum([h['total_invested'] for h in holdings])
+        total_profit = total_curr - total_cost
+        
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Portföy Değeri", f"{total_curr:,.2f} ₺")
+        m2.metric("Toplam Maliyet", f"{total_cost:,.2f} ₺")
+        m3.metric("Toplam Kar/Zarar", f"{total_profit:,.2f} ₺", delta=f"{total_profit:,.2f}")
+    else:
+        st.info("Henüz bir işleminiz bulunmuyor.")
+
+    st.markdown("---")
+    
+    # 3. İşlem Geçmişi
+    st.subheader("📜 İşlem Geçmişim")
+    history = get_all_transactions()
+    if not history.empty:
+        st.dataframe(history.drop(columns=['id']), use_container_width=True)
+    else:
+        st.write("İşlem geçmişi bulunamadı.")
+
+# --- 7. RAPORLAR (BENCHMARK) ---
 elif page == "Raporlar":
     st.title("📊 Kıyaslamalı Performans Raporu")
     st.markdown("Varlıkların son 1 yıllık performansını baz 100 üzerinden kıyaslayın.")
@@ -332,7 +423,6 @@ elif page == "Raporlar":
         benchmark_df = get_benchmark_data()
         
     if not benchmark_df.empty:
-        # Getiriler Özeti
         summary = get_benchmark_summary(benchmark_df)
         cols = st.columns(len(summary))
         for i, (asset, ret) in enumerate(summary.items()):
@@ -340,7 +430,6 @@ elif page == "Raporlar":
             
         st.markdown("---")
         
-        # Grafik
         fig = px.line(benchmark_df, title="Son 1 Yıl Performans Kıyaslaması (Baz 100)",
                      labels={"value": "Endeks Değeri", "index": "Tarih"})
         fig.update_layout(template="plotly_dark", height=600)
@@ -350,11 +439,10 @@ elif page == "Raporlar":
     else:
         st.error("Benchmark verileri alınamadı.")
 
-# --- 7. BİLGİ NOTU ---
+# --- 8. BİLGİ NOTU ---
 elif page == "Bilgi Notu":
     st.title("📝 Günlük Bilgi Notu & Takvim")
     
-    # Ekonomik Takvim Filtresi
     cal_filter = st.selectbox("Takvim Filtresi", ["Türkiye (TR)", "ABD (US)", "Global (All)"])
     filter_map = {"Türkiye (TR)": "TR", "ABD (US)": "US", "Global (All)": "ALL"}
     
