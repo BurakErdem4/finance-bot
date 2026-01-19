@@ -31,9 +31,22 @@ def display_technical_analysis(df, symbol):
     # Signal Box
     signal = get_technical_signals(df)
     st.markdown(f"""
-    <div style="padding:10px; border-radius:10px; background-color:{signal['color']}; color:white; text-align:center; margin-bottom:20px;">
-        <h3 style="margin:0;">{symbol} Sinyal Durumu: {signal['label']}</h3>
-        <p style="margin:0;">{signal['desc']} (RSI: {signal['rsi']})</p>
+    <div style="padding:15px; border-radius:12px; background-color:#1E1E1E; border: 2px solid {signal['color']}; color:white; margin-bottom:20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h2 style="margin:0; color:{signal['color']};">{signal['label']}</h2>
+                <p style="margin:5px 0 0 0; color:#AAA;">{signal['desc']}</p>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size: 24px; font-weight: bold;">{signal['score']}/100</div>
+                <div style="font-size: 14px; color:#AAA;">Teknik Puan</div>
+            </div>
+        </div>
+        <hr style="border: 0; border-top: 1px solid #333; margin: 15px 0;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-size: 16px;">🎯 Önerilen Giriş: <span style="font-weight:bold; color:cyan;">Portföyün %{signal['kelly']}</span></div>
+            <div style="font-size: 14px; color:#AAA;">RSI: {signal['rsi']}</div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
