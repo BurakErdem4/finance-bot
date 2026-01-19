@@ -23,13 +23,21 @@ def get_all_transactions():
 
 def get_portfolio_balance():
     """
-    Calculates current holdings and average costs from transactions.
-    Returns: List of dicts [{'symbol': 'AAPL', 'quantity': 10, 'avg_cost': 150, 'total_val': 1500}]
+    Calculates current holdings, average costs, and current market values with currency conversion.
+    Returns: List of dicts enriched with current prices in TL and P/L metrics.
     """
+    import yfinance as yf
+    
     df = get_all_transactions()
     if df.empty:
         return []
 
+    # 1. Get USD/TRY rate
+    try:
+        usdtry = yf.Ticker("TRY=X").history(period="1d")['Close'].iloc[-1]
+    except:
+        usdtry = 1.0 # Fallback
+        
     # Group by symbol
     summary = []
     symbols = df['symbol'].unique()
@@ -38,33 +46,55 @@ def get_portfolio_balance():
         sym_df = df[df['symbol'] == sym].sort_values('date')
         
         net_qty = 0
-        total_cost = 0
+        total_cost = 0 # This is always stored in whatever currency the price was entered in. 
+                       # Assumptions: BIST trades in TL, foreign in USD.
         
         for index, row in sym_df.iterrows():
             if row['type'] == 'BUY':
-                # Weighted average cost calculation
-                # formula: (old_qty * old_avg + new_qty * new_price) / (old_qty + new_qty)
                 new_total_cost = (net_qty * (total_cost / net_qty if net_qty > 0 else 0)) + (row['quantity'] * row['price'])
                 net_qty += row['quantity']
                 total_cost = new_total_cost
             elif row['type'] == 'SELL':
-                # Selling doesn't change average cost of remaining shares, just reduces quantity
                 if net_qty >= row['quantity']:
                     avg_cost = total_cost / net_qty
                     net_qty -= row['quantity']
                     total_cost = net_qty * avg_cost if net_qty > 0 else 0
                 else:
-                    # Over-selling (should handle as 0 or error)
                     net_qty = 0
                     total_cost = 0
 
         if net_qty > 0:
             avg_cost = total_cost / net_qty
+            
+            # 2. Fetch Live Price & Convert to TL
+            yf_sym = sym if "-" in sym or "." in sym else sym + ".IS"
+            ticker = yf.Ticker(yf_sym)
+            try:
+                curr_price = ticker.history(period="1d")['Close'].iloc[-1]
+            except:
+                curr_price = avg_cost # Fallback to cost if fail
+            
+            # Conversion logic
+            is_foreign = not yf_sym.endswith(".IS")
+            curr_price_tl = curr_price * usdtry if is_foreign else curr_price
+            avg_cost_tl = avg_cost * usdtry if is_foreign else avg_cost
+            
+            total_val_tl = curr_price_tl * net_qty
+            total_invested_tl = avg_cost_tl * net_qty
+            
+            profit_tl = total_val_tl - total_invested_tl
+            profit_pct = (profit_tl / total_invested_tl * 100) if total_invested_tl > 0 else 0
+
             summary.append({
                 "symbol": sym,
                 "quantity": round(net_qty, 4),
                 "avg_cost": round(avg_cost, 2),
-                "total_invested": round(total_cost, 2)
+                "avg_cost_tl": round(avg_cost_tl, 2),
+                "current_price_tl": round(curr_price_tl, 2),
+                "total_invested_tl": round(total_invested_tl, 2),
+                "total_value_tl": round(total_val_tl, 2),
+                "profit_tl": round(profit_tl, 2),
+                "profit_pct": round(profit_pct, 2)
             })
 
     return summary

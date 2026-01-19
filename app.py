@@ -111,25 +111,15 @@ if page == "Piyasa Özeti":
     st.title("📊 Piyasa Özeti")
     
     # A. Gerçek Portföy Özeti (En Üstte)
-    holdings = get_portfolio_balance()
+    with st.spinner("Cüzdan özeti hazırlanıyor..."):
+        holdings = get_portfolio_balance()
+    
     if holdings:
-        # Toplam değeri hesapla
-        total_portfolio_val = 0
-        pie_data = []
-        for h in holdings:
-            sym = h['symbol']
-            yf_sym = sym if "-" in sym or "." in sym else sym + ".IS"
-            try:
-                curr_price = yf.Ticker(yf_sym).history(period="1d")['Close'].iloc[-1]
-            except:
-                curr_price = h['avg_cost']
-            val = curr_price * h['quantity']
-            total_portfolio_val += val
-            pie_data.append({"Sembol": sym, "Değer": val})
-        
+        total_portfolio_val = sum([h['total_value_tl'] for h in holdings])
         st.metric("💰 Toplam Portföy Değeri", f"{total_portfolio_val:,.2f} ₺")
         
         # Pasta Grafik
+        pie_data = [{"Sembol": h['symbol'], "Değer": h['total_value_tl']} for h in holdings]
         pie_df = pd.DataFrame(pie_data)
         fig_pie = px.pie(pie_df, values="Değer", names="Sembol", title="Cüzdan Dağılımı (Gerçek)")
         fig_pie.update_layout(template="plotly_dark", height=400)
@@ -350,7 +340,7 @@ elif page == "Cüzdanım":
             t_type = st.selectbox("İşlem Türü", ["BUY", "SELL"])
             t_qty = st.number_input("Adet", min_value=0.01, step=0.1)
         with col3:
-            t_price = st.number_input("Birim Fiyat", min_value=0.01, step=0.01)
+            t_price = st.number_input("Birim Fiyat (Döviz/TL)", min_value=0.01, step=0.01)
             submitted = st.form_submit_button("İşlemi Kaydet")
             
         if submitted:
@@ -364,49 +354,39 @@ elif page == "Cüzdanım":
     st.markdown("---")
     
     st.subheader("📂 Mevcut Varlıklarım")
-    holdings = get_portfolio_balance()
+    with st.spinner("Bakiyeler ve güncel fiyatlar hesaplanıyor..."):
+        holdings = get_portfolio_balance()
     
     if holdings:
-        with st.spinner("Güncel fiyatlar veritabanından alınıyor..."):
-            current_vals = []
-            for h in holdings:
-                sym = h['symbol']
-                yf_sym = sym if "-" in sym or "." in sym else sym + ".IS"
-                try:
-                    curr_price = yf.Ticker(yf_sym).history(period="1d")['Close'].iloc[-1]
-                except:
-                    curr_price = h['avg_cost']
-                
-                curr_total = curr_price * h['quantity']
-                profit = curr_total - h['total_invested']
-                profit_pct = (profit / h['total_invested']) * 100
-                
-                current_vals.append({
-                    "Sembol": sym,
-                    "Adet": h['quantity'],
-                    "Maliyet": h['avg_cost'],
-                    "Güncel Fiyat": round(curr_price, 2),
-                    "Güncel Değer": round(curr_total, 2),
-                    "Kar/Zarar": round(profit, 2),
-                    "Kar/Zarar (%)": round(profit_pct, 2)
-                })
+        # Build UI table using enriched data
+        current_vals = []
+        for h in holdings:
+            current_vals.append({
+                "Sembol": h['symbol'],
+                "Adet": h['quantity'],
+                "Maliyet (Döviz/TL)": h['avg_cost'],
+                "Güncel Fiyat (TL)": h['current_price_tl'],
+                "Güncel Değer (TL)": h['total_value_tl'],
+                "Kar/Zarar (TL)": h['profit_tl'],
+                "Kar/Zarar (%)": h['profit_pct']
+            })
         
         res_df = pd.DataFrame(current_vals)
         st.table(res_df.style.format({
-            "Maliyet": "{:.2f} ₺",
-            "Güncel Fiyat": "{:.2f} ₺",
-            "Güncel Değer": "{:,.2f} ₺",
-            "Kar/Zarar": "{:,.2f} ₺",
+            "Maliyet (Döviz/TL)": "{:.2f}",
+            "Güncel Fiyat (TL)": "{:.2f} ₺",
+            "Güncel Değer (TL)": "{:,.2f} ₺",
+            "Kar/Zarar (TL)": "{:,.2f} ₺",
             "Kar/Zarar (%)": "%{:.2f}"
         }))
         
-        total_curr = res_df["Güncel Değer"].sum()
-        total_cost = sum([h['total_invested'] for h in holdings])
+        total_curr = res_df["Güncel Değer (TL)"].sum()
+        total_cost = sum([h['total_invested_tl'] for h in holdings])
         total_profit = total_curr - total_cost
         
         m1, m2, m3 = st.columns(3)
         m1.metric("Portföy Değeri", f"{total_curr:,.2f} ₺")
-        m2.metric("Toplam Maliyet", f"{total_cost:,.2f} ₺")
+        m2.metric("Toplam Maliyet (TL)", f"{total_cost:,.2f} ₺")
         m3.metric("Toplam Kar/Zarar", f"{total_profit:,.2f} ₺", delta=f"{total_profit:,.2f} ₺")
     else:
         st.info("Henüz bir işleminiz bulunmuyor.")
