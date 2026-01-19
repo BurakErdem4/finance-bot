@@ -14,3 +14,11 @@ PORTFOLIO_TARGETS = {
     "Eurobond": 15,
     "Emtia": 10
 }
+
+# Mevcut Portföy Durumu (Örnek Veri)
+CURRENT_PORTFOLIO = {
+    "Teknoloji": 15000,
+    "Yerli Hisse": 12000,
+    "Eurobond": 3000,
+    "Emtia": 2000
+}

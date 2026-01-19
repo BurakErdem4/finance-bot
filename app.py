@@ -11,6 +11,7 @@ from fund_module import get_fund_analysis
 from info_module import get_market_summary
 import config
 from database import init_db
+from rebalance_module import calculate_rebalance, get_rebalance_summary
 
 # Veritabanını başlat
 init_db()
@@ -42,7 +43,7 @@ def format_price(val, currency="₺"):
 
 # Kenar Çubuğu (Navigasyon)
 st.sidebar.title("Finans Botu 🤖")
-page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Bilgi Notu"])
+page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Portföy Dengeleyici", "Bilgi Notu"])
 
 st.sidebar.markdown("---")
 
@@ -168,7 +169,49 @@ elif page == "Fon Analizi":
             else:
                 st.info("Varlık dağılım verisi bulunamadı.")
 
-# --- 4. BİLGİ NOTU ---
+# --- 4. PORTFÖY DENGELEYİCİ ---
+elif page == "Portföy Dengeleyici":
+    st.title("⚖️ Portföy Dengeleyici (Smart Rebalance)")
+    st.markdown("Yeni yatırımlarınızı hedef portföy yüzdelerinize göre otomatik olarak dağıtın.")
+    
+    # 1. Mevcut Durumu Göster
+    st.subheader("Mevcut Portföy Dağılımı")
+    current_df = pd.DataFrame(list(config.CURRENT_PORTFOLIO.items()), columns=["Kategori", "Mevcut Değer (TL)"])
+    current_df["Hedef (%)"] = current_df["Kategori"].map(config.PORTFOLIO_TARGETS)
+    
+    total_val = current_df["Mevcut Değer (TL)"].sum()
+    current_df["Mevcut (%)"] = (current_df["Mevcut Değer (TL)"] / total_val * 100).round(2)
+    
+    st.table(current_df)
+    st.write(f"**Toplam Portföy Değeri:** {total_val:,.2f} TL")
+    
+    st.markdown("---")
+    
+    # 2. Yeni Yatırım Girişi
+    new_investment = st.number_input("Yatırılacak Tutar (TL)", min_value=0, value=10000, step=1000)
+    
+    if st.button("Hesapla"):
+        suggestions = calculate_rebalance(
+            new_investment, 
+            config.CURRENT_PORTFOLIO, 
+            config.PORTFOLIO_TARGETS
+        )
+        
+        st.success("✅ Dağıtım Önerisi Hazır")
+        
+        # Grafik ile gösterim
+        s_df = pd.DataFrame(list(suggestions.items()), columns=["Kategori", "Alınacak Tutar (TL)"])
+        fig = px.bar(s_df, x="Kategori", y="Alınacak Tutar (TL)", title="Yeni Yatırım Dağılımı")
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Öneri Metni
+        st.info(get_rebalance_summary(suggestions))
+        
+        # Detaylı Tablo
+        st.subheader("İşlem Detayları")
+        st.table(s_df.style.format({"Alınacak Tutar (TL)": "{:,.2f}"}))
+
+# --- 5. BİLGİ NOTU ---
 elif page == "Bilgi Notu":
     st.title("📝 Günlük Bilgi Notu & Takvim")
     
