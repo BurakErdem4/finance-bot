@@ -67,41 +67,66 @@ def execute_paper_trade(symbol, trade_type, quantity, price):
     update_virtual_balance(new_balance)
     return True, "İşlem başarılı."
 
-def run_paper_bot(symbols):
+import streamlit as st
+
+def run_paper_bot(symbols, force_trade=False):
     """
     Analyzes symbols and executes paper trades based on technical score.
-    Logic: Score > 80 -> BUY, Score < 40 -> SELL
+    Now includes live progress updates via st.status.
     """
     logs = []
+    trades_made = 0
     open_pos = get_open_paper_positions()
     
-    for sym in symbols:
-        try:
-            yf_sym = sym if "." in sym or "-" in sym else sym + ".IS"
-            hist = yf.Ticker(yf_sym).history(period="1y")
-            if hist.empty: continue
-            
-            signal = get_technical_signals(hist)
-            score = signal['score']
-            price = hist['Close'].iloc[-1]
-            
-            # 1. SELL Logic
-            if sym in open_pos and score < 40:
-                qty = open_pos[sym]
-                success, msg = execute_paper_trade(sym, 'SELL', qty, price)
-                logs.append(f"🤖 {sym} SATILDI (@{price:.2f}): {msg}")
+    with st.status("🔍 Piyasa Taranıyor...", expanded=True) as status:
+        for sym in symbols:
+            try:
+                st.write(f"⏳ **{sym}** taranıyor...")
+                yf_sym = sym if "." in sym or "-" in sym else sym + ".IS"
+                hist = yf.Ticker(yf_sym).history(period="1y")
                 
-            # 2. BUY Logic
-            elif sym not in open_pos and score > 80:
-                balance = get_virtual_balance()
-                # Risk per trade: 10% of balance
-                investment = balance * 0.10
-                qty = investment / price
-                success, msg = execute_paper_trade(sym, 'BUY', qty, price)
-                logs.append(f"🤖 {sym} ALINDI (@{price:.2f}): {msg}")
+                if hist.empty:
+                    st.write(f"⚠️ {sym} için veri çekilemedi.")
+                    continue
                 
-        except Exception as e:
-            logs.append(f"❌ {sym} hatası: {str(e)}")
+                signal = get_technical_signals(hist)
+                score = signal['score']
+                price = hist['Close'].iloc[-1]
+                
+                # 1. SELL Logic
+                if sym in open_pos:
+                    if score < 40 or (force_trade and trades_made == 0):
+                        qty = open_pos[sym]
+                        success, msg = execute_paper_trade(sym, 'SELL', qty, price)
+                        log_msg = f"📉 **{sym} taranıyor...** Puan: {score} (SAT EMRİ!)"
+                        st.write(log_msg)
+                        logs.append(f"🤖 {log_msg}: {msg}")
+                        trades_made += 1
+                    else:
+                        st.write(f"✅ {sym} taranıyor... Puan: {score} (Pozisyon Korunuyor)")
+                        
+                # 2. BUY Logic
+                elif sym not in open_pos:
+                    if score > 80 or (force_trade and trades_made == 0):
+                        balance = get_virtual_balance()
+                        investment = balance * 0.10
+                        qty = investment / price
+                        success, msg = execute_paper_trade(sym, 'BUY', qty, price)
+                        log_msg = f"🚀 **{sym} taranıyor...** Puan: {score} (AL EMRİ!)"
+                        st.write(log_msg)
+                        logs.append(f"🤖 {log_msg}: {msg}")
+                        trades_made += 1
+                    else:
+                        st.write(f"💠 {sym} taranıyor... Puan: {score} (Yetersiz - Hedef > 80)")
+                        
+            except Exception as e:
+                st.write(f"❌ {sym} hatası: {str(e)}")
+                logs.append(f"❌ {sym} hatası: {str(e)}")
+        
+        status.update(label="✅ Tarama Tamamlandı", state="complete", expanded=False)
+
+    if trades_made == 0:
+        st.info("ℹ️ **Tarama Tamamlandı.** Mevcut piyasa koşullarında 80 üzeri puana sahip hisse bulunamadı.")
             
     return logs
 

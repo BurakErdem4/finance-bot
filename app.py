@@ -468,18 +468,19 @@ elif page == "👻 Gölge Portföy":
     
     # Bot Control
     st.subheader("🤖 Bot Kontrol Merkezi")
+    force_bot = st.toggle("🧪 Test Modu (Sinyal gelmese de ilk hisseyi al/sat)")
+    
     if st.button("Botu Çalıştır (Piyasayı Tara & İşlem Yap)"):
-        with st.spinner("BIST30 Hisseleri taranıyor ve sinyaller kontrol ediliyor..."):
-            # Sample scanning list (can be expanded)
-            scan_list = ["THYAO", "EREGL", "ASELS", "SISE", "AKBNK", "KCHOL", "TUPRS", "SAHOL", "BIMAS"]
-            logs = paper_trader.run_paper_bot(scan_list)
-            
-            if logs:
-                for log in logs:
-                    st.write(log)
-            else:
-                st.info("Şu an için yeni bir sinyal veya satılacak pozisyon bulunmuyor.")
-        st.rerun()
+        # Sample scanning list (can be expanded)
+        scan_list = ["THYAO", "EREGL", "ASELS", "SISE", "AKBNK", "KCHOL", "TUPRS", "SAHOL", "BIMAS"]
+        logs = paper_trader.run_paper_bot(scan_list, force_trade=force_bot)
+        
+        if logs:
+            st.success(f"İşlem özeti: {len(logs)} aksiyon alındı.")
+        
+        # We don't need a rerun here because the bot function already updated the UI 
+        # but a rerun helps refreshing the metrics/tables below.
+        st.button("Verileri Yenile")
 
     st.markdown("---")
     
