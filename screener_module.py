@@ -1,6 +1,8 @@
+import streamlit as st
 import borsapy as bp
 import pandas as pd
 
+@st.cache_data(ttl=900)
 def find_cheap_industrial_stocks():
     """
     Finds industrial stocks with low P/E ratio and positive monthly return.

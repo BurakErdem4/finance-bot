@@ -1,6 +1,8 @@
+import streamlit as st
 import borsapy as bp
 import pandas as pd
 
+@st.cache_data(ttl=900)
 def get_fund_analysis(code):
     """
     Fetches analysis data for a specific TEFAS fund.

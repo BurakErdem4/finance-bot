@@ -1,7 +1,9 @@
+import streamlit as st
 import borsapy as bp
 import pandas as pd
 from datetime import datetime
 
+@st.cache_data(ttl=900)
 def get_market_summary():
     """
     Fetches daily market info.
