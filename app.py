@@ -15,7 +15,7 @@ from database import init_db
 from rebalance_module import calculate_rebalance, get_rebalance_summary
 from analysis_module import calculate_sma, calculate_rsi, get_technical_signals
 from benchmark_module import get_benchmark_data, get_benchmark_summary
-from backtest_module import run_backtest
+from backtest_module import run_backtest, run_periodic_backtest
 from mail_module import send_daily_report
 from portfolio_manager import add_transaction, get_all_transactions, get_portfolio_balance, get_portfolio_by_category
 
@@ -299,43 +299,71 @@ elif page == "Strateji Testi":
     st.title("🧪 Strateji Testi (Backtest)")
     st.markdown("Geçmiş veriler üzerinde stratejilerinizi test edin ve performansını ölçün.")
     
-    b_col1, b_col2, b_col3 = st.columns(3)
+    b_col1, b_col2, b_col3, b_col4 = st.columns(4)
     
     with b_col1:
         backtest_symbol = st.text_input("Hisse/Fon Sembolü", "BTC-USD").upper()
     with b_col2:
         initial_cap = st.number_input("Başlangıç Sermayesi ($/TL)", value=1000, step=100)
     with b_col3:
-        strategy_choice = st.selectbox("Strateji Seçimi", ['RSI Stratejisi (30/70)', 'SMA Cross (50/200)', 'Al ve Tut'])
+        strategy_choice = st.selectbox("Strateji Seçimi", ['RSI Stratejisi (30/70)', 'SMA Cross (50/200)', 'Al ve Tut', 'Smart DCA', 'Normal DCA'])
+    with b_col4:
+        is_periodic = st.toggle("Dönemsel (Yıllık) Test")
+        
+    monthly_dca = 0
+    if 'DCA' in strategy_choice:
+        monthly_dca = st.number_input("Aylık Alım Tutarı", value=100, step=50)
         
     if st.button("Simülasyonu Başlat"):
         with st.spinner(f"{backtest_symbol} için simülasyon çalıştırılıyor..."):
-            df_hist = get_yfinance_data(backtest_symbol, period="2y")
+            df_hist = get_yfinance_data(backtest_symbol, period="5y") # Longer period for periodic tests
             
             if not df_hist.empty:
-                results = run_backtest(df_hist, strategy_choice, initial_cap)
-                
-                if results:
-                    metrics = results['metrics']
-                    equity_df = results['equity_curve']
-                    
-                    m_col1, m_col2, m_col3 = st.columns(3)
-                    m_col1.metric("Toplam Getiri", f"%{metrics['total_return_pct']}", delta=f"{metrics['total_return_pct']}%")
-                    m_col2.metric("Son Bakiye", f"{metrics['final_equity']:,} {config.SYMBOLS.get('currency', '₺')}")
-                    m_col3.metric("Toplam İşlem", metrics['trade_count'])
-                    
-                    st.markdown("---")
-                    
-                    st.subheader("Performans Kıyaslaması (Strateji vs. Al-Tut)")
-                    fig_bt = px.line(equity_df, y=['Strategy_Equity', 'BuyHold_Equity'], 
-                                   labels={"value": "Sermaye Değeri", "index": "Tarih"},
-                                   title=f"{backtest_symbol} için {strategy_choice} Performansı")
-                    fig_bt.update_layout(template="plotly_dark", height=500)
-                    st.plotly_chart(fig_bt, use_container_width=True)
-                    
-                    st.info("💡 Not: Her işlemde %0.2 sanal komisyon kesilmiştir.")
+                if is_periodic:
+                    periodic_results = run_periodic_backtest(df_hist, strategy_choice, initial_cap)
+                    if periodic_results:
+                        st.subheader("🗓️ Yıllık Performans Kıyaslaması")
+                        summary_data = []
+                        for res in periodic_results:
+                            m = res['metrics']
+                            summary_data.append({
+                                "Yıl": m['year'],
+                                "Yatırılan": m.get('total_invested', initial_cap),
+                                "Son Bakiye": m['final_equity'],
+                                "Getiri (%)": f"%{m['total_return_pct']}"
+                            })
+                        st.table(summary_data)
+                        
+                        # Multi-year chart (Just show the combined curve or first/last?)
+                        # For simplicity, we'll show the combined metrics in a bar chart
+                        perf_df = pd.DataFrame(summary_data)
+                        perf_df["Getiri Sayısal"] = perf_df["Getiri (%)"].str.replace('%', '').astype(float)
+                        fig_p = px.bar(perf_df, x="Yıl", y="Getiri Sayısal", title="Yıllara Göre Getiri (%)")
+                        st.plotly_chart(fig_p, use_container_width=True)
                 else:
-                    st.error("Simülasyon sırasında hata oluştu.")
+                    results = run_backtest(df_hist, strategy_choice, initial_cap, monthly_dca=monthly_dca)
+                    if results:
+                        metrics = results['metrics']
+                        equity_df = results['equity_curve']
+                        
+                        m_col1, m_col2, m_col3 = st.columns(3)
+                        m_col1.metric("Toplam Getiri", f"%{metrics['total_return_pct']}", delta=f"{metrics['total_return_pct']}%")
+                        m_col2.metric("Son Bakiye", f"{metrics['final_equity']:,} {config.SYMBOLS.get('currency', '₺')}")
+                        m_col3.metric("Yatırılan Toplam", metrics.get('total_invested', initial_cap))
+                        
+                        st.markdown("---")
+                        
+                        st.subheader("Performans Grafiği")
+                        fig_bt = px.line(equity_df, y=['Strategy_Equity', 'BuyHold_Equity'], 
+                                       labels={"value": "Sermaye Değeri", "index": "Tarih"},
+                                       title=f"{backtest_symbol} için {strategy_choice} Performansı")
+                        fig_bt.update_layout(template="plotly_dark", height=500)
+                        st.plotly_chart(fig_bt, use_container_width=True)
+                        
+                        if 'DCA' in strategy_choice:
+                            st.info("💡 Smart DCA: Fiyat SMA200 altındaysa 1.5x, RSI > 80 ise 0.5x alım yapar.")
+                    else:
+                        st.error("Simülasyon sırasında hata oluştu.")
             else:
                 st.warning(f"{backtest_symbol} için yeterli veri bulunamadı.")
 
