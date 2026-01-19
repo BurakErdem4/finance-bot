@@ -16,6 +16,7 @@ from rebalance_module import calculate_rebalance, get_rebalance_summary
 from analysis_module import calculate_sma, calculate_rsi, get_technical_signals
 from benchmark_module import get_benchmark_data, get_benchmark_summary
 from backtest_module import run_backtest
+from mail_module import send_daily_report
 
 # Veritabanını başlat
 init_db()
@@ -86,6 +87,17 @@ def format_price(val, currency="₺"):
 # Kenar Çubuğu (Navigasyon)
 st.sidebar.title("Finans Botu 🤖")
 page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Portföy Dengeleyici", "Strateji Testi", "Raporlar", "Bilgi Notu"])
+
+st.sidebar.markdown("---")
+
+# 📧 Mail Raporlama Butonu
+if st.sidebar.button("📧 Raporu Kendime Mail At"):
+    with st.spinner("Rapor gönderiliyor..."):
+        success, message = send_daily_report()
+        if success:
+            st.sidebar.success(message)
+        else:
+            st.sidebar.error(message)
 
 st.sidebar.markdown("---")
 
