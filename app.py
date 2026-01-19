@@ -4,6 +4,7 @@ import yfinance as yf
 import borsapy as bp
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # Yerel Modüller
 from screener_module import find_cheap_industrial_stocks
@@ -12,9 +13,48 @@ from info_module import get_market_summary
 import config
 from database import init_db
 from rebalance_module import calculate_rebalance, get_rebalance_summary
+from analysis_module import calculate_sma, calculate_rsi, get_technical_signals
 
 # Veritabanını başlat
 init_db()
+
+# Reusable component for Technical Analysis
+def display_technical_analysis(df, symbol):
+    if df.empty:
+        st.warning(f"{symbol} için veri bulunamadı.")
+        return
+
+    # Signal Box
+    signal = get_technical_signals(df)
+    st.markdown(f"""
+    <div style="padding:10px; border-radius:10px; background-color:{signal['color']}; color:white; text-align:center; margin-bottom:20px;">
+        <h3 style="margin:0;">{symbol} Sinyal Durumu: {signal['label']}</h3>
+        <p style="margin:0;">{signal['desc']} (RSI: {signal['rsi']})</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # SMA Hesaplamaları
+    sma50 = calculate_sma(df, 50)
+    sma200 = calculate_sma(df, 200)
+    rsi = calculate_rsi(df)
+    
+    # Subplots
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                       vertical_spacing=0.1, subplot_titles=(f'Fiyat ve SMA', 'RSI (14)'),
+                       row_heights=[0.7, 0.3])
+    
+    # Fiyat Grafiği
+    fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Fiyat', line=dict(color='white')), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=sma50, name='SMA 50', line=dict(color='cyan', width=1.5)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=sma200, name='SMA 200', line=dict(color='red', width=1.5)), row=1, col=1)
+    
+    # RSI Grafiği
+    fig.add_trace(go.Scatter(x=df.index, y=rsi, name='RSI', line=dict(color='purple')), row=2, col=1)
+    fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
+    fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
+    
+    fig.update_layout(height=500, template="plotly_dark", showlegend=True)
+    st.plotly_chart(fig, use_container_width=True)
 
 # Sayfa Ayarları
 st.set_page_config(
@@ -25,9 +65,10 @@ st.set_page_config(
 
 # Caching for yfinance to prevent frequent API calls
 @st.cache_data(ttl=900)
-def get_yfinance_data(symbol, period="1mo"):
+def get_yfinance_data(symbol, period="1y"):
     try:
         ticker = yf.Ticker(symbol)
+        # We use 1y to have enough data for SMA 200
         return ticker.history(period=period)
     except:
         return pd.DataFrame()
@@ -54,63 +95,30 @@ if page == "Piyasa Özeti":
     # Global Sembol Seçimi
     symbol_to_track = st.text_input("Takip Edilecek Sembol (Yfinance)", "AAPL").upper()
     
-    # Üst Bilgi Kartları (Metrics)
-    col1, col2, col3, col4 = st.columns(4)
+    # Veri Çekme (Analiz için 1 yıllık veri alıyoruz)
+    with st.spinner(f"{symbol_to_track} verileri analiz ediliyor..."):
+        symbol_hist_full = get_yfinance_data(symbol_to_track, period="1y")
     
-    # Dolar ve Euro (Info modülünden)
-    market_data = get_market_summary()
-    
-    with col1:
-        st.metric("USD/TRY", format_price(market_data['usd']))
-    with col2:
-        st.metric("EUR/TRY", format_price(market_data['eur']))
+    # Detaylı Teknik Analiz (Market Summary version)
+    if not symbol_hist_full.empty:
+        display_technical_analysis(symbol_hist_full, symbol_to_track)
+    else:
+        st.warning(f"{symbol_to_track} için analiz verisi bulunamadı.")
         
-    # BIST30
-    with col3:
-        try:
-            xu030 = bp.Index("XU030")
-            val = xu030.info.get('last') if hasattr(xu030, 'info') else "---"
-            st.metric("BIST 30", format_price(val))
-        except:
-            st.metric("BIST 30", "Hata")
-
-    # Dinamik Sembol
-    with col4:
-        try:
-            hist_current = get_yfinance_data(symbol_to_track, period="1d")
-            if not hist_current.empty:
-                st.metric(f"Sembol ({symbol_to_track})", format_price(hist_current['Close'].iloc[-1], "$"))
-            else:
-                st.metric(f"Sembol ({symbol_to_track})", "Yüklenemedi")
-        except:
-             st.metric(f"Sembol ({symbol_to_track})", "Hata")
+    else:
+        st.warning(f"{symbol_to_track} için analiz verisi bulunamadı.")
 
     st.markdown("---")
     
-    # Grafikler Yan Yana
-    g_col1, g_col2 = st.columns(2)
-    
-    with g_col1:
-        st.subheader(f"📈 {symbol_to_track} (Son 1 Ay)")
-        try:
-            symbol_hist = get_yfinance_data(symbol_to_track, period="1mo")
-            if not symbol_hist.empty:
-                fig = px.line(symbol_hist, y="Close", title=f"{symbol_to_track} Günlük Kapanış")
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning(f"{symbol_to_track} için grafik verisi bulunamadı.")
-        except Exception as e:
-            st.error(f"Veri alınamadı: {e}")
-
-    with g_col2:
-        st.subheader("🇹🇷 BIST 30 (Son 1 Ay)")
-        try:
-            xu030_hist = bp.Index("XU030").history(period="1ay")
-            if xu030_hist is not None and not xu030_hist.empty:
-                fig2 = px.line(xu030_hist, y="Close", title="BIST30 Kapanış")
-                st.plotly_chart(fig2, use_container_width=True)
-        except Exception as e:
-             st.error(f"Veri alınamadı: {e}")
+    # BIST 30 Grafiği (Alt Kısım)
+    st.subheader("🇹🇷 BIST 30 (Son 1 Ay)")
+    try:
+        xu030_hist = bp.Index("XU030").history(period="1ay")
+        if xu030_hist is not None and not xu030_hist.empty:
+            fig2 = px.line(xu030_hist, y="Close", title="BIST30 Kapanış")
+            st.plotly_chart(fig2, use_container_width=True)
+    except Exception as e:
+         st.error(f"Veri alınamadı: {e}")
 
 # --- 2. HİSSE TARAMA ---
 elif page == "Hisse Tarama":
@@ -129,6 +137,17 @@ elif page == "Hisse Tarama":
         if df is not None and not df.empty:
             st.success(f"{len(df)} adet hisse bulundu.")
             st.dataframe(df, use_container_width=True)
+            
+            st.markdown("---")
+            st.subheader("Hızlı Teknik Analiz")
+            selected_stock = st.selectbox("Analiz edilecek hisseyi seçin:", df['symbol'].tolist())
+            
+            if st.button("Teknik Analizi Göster"):
+                # Borsa İstanbul hisseleri için .IS son eki gerekebilir yfinance'da
+                yf_symbol = selected_stock + ".IS"
+                with st.spinner(f"{yf_symbol} analiz ediliyor..."):
+                    stock_hist = get_yfinance_data(yf_symbol, period="1y")
+                    display_technical_analysis(stock_hist, yf_symbol)
         else:
             st.warning("Kriterlere uygun hisse bulunamadı veya bir hata oluştu.")
 
