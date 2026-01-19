@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 
 @st.cache_data(ttl=900)
-def get_market_summary():
+def get_market_summary(calendar_country="TR"):
     """
     Fetches daily market info.
     Returns a dictionary with:
@@ -31,7 +31,9 @@ def get_market_summary():
     # 3. Takvim
     try:
         cal = bp.EconomicCalendar()
-        events = cal.events(period="1w", country="TR", importance="high")
+        # calendar_country can be "TR", "US", or None for All
+        country_code = calendar_country if calendar_country in ["TR", "US"] else None
+        events = cal.events(period="1w", country=country_code, importance="high")
         if events is not None and not events.empty:
             if 'Date' in events.columns:
                 events = events.sort_values(by='Date')

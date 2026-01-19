@@ -19,9 +19,9 @@ def get_fund_analysis(code):
         info = fon.info
         
         result["info"] = {
-            "title": info.get('title', 'Bilinmiyor'),
+            "title": info.get('title') or info.get('fund_title') or info.get('fund_long_name') or info.get('name', 'Bilinmiyor'),
             "price": info.get('price', 0),
-            "category": info.get('fund_type_detail_name', 'Bilinmiyor')
+            "category": info.get('fund_type_detail_name') or info.get('category') or info.get('fund_type', 'Bilinmiyor')
         }
         
         result["returns"] = {

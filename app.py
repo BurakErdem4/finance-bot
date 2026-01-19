@@ -25,8 +25,11 @@ st.set_page_config(
 # Caching for yfinance to prevent frequent API calls
 @st.cache_data(ttl=900)
 def get_yfinance_data(symbol, period="1mo"):
-    ticker = yf.Ticker(symbol)
-    return ticker.history(period=period)
+    try:
+        ticker = yf.Ticker(symbol)
+        return ticker.history(period=period)
+    except:
+        return pd.DataFrame()
 
 # Helper for price formatting
 def format_price(val, currency="₺"):
@@ -42,11 +45,13 @@ st.sidebar.title("Finans Botu 🤖")
 page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Bilgi Notu"])
 
 st.sidebar.markdown("---")
-st.sidebar.info("Developed with borsapy & streamlit")
 
 # --- 1. PİYASA ÖZETİ ---
 if page == "Piyasa Özeti":
     st.title("📊 Piyasa Özeti")
+    
+    # Global Sembol Seçimi
+    symbol_to_track = st.text_input("Takip Edilecek Sembol (Yfinance)", "AAPL").upper()
     
     # Üst Bilgi Kartları (Metrics)
     col1, col2, col3, col4 = st.columns(4)
@@ -68,14 +73,16 @@ if page == "Piyasa Özeti":
         except:
             st.metric("BIST 30", "Hata")
 
-    # Apple (Config'den ilk sembolü alalım veya genel kalsın)
+    # Dinamik Sembol
     with col4:
         try:
-            hist = get_yfinance_data("AAPL", period="1d")
-            if not hist.empty:
-                st.metric("Apple (AAPL)", format_price(hist['Close'].iloc[-1], "$"))
+            hist_current = get_yfinance_data(symbol_to_track, period="1d")
+            if not hist_current.empty:
+                st.metric(f"Sembol ({symbol_to_track})", format_price(hist_current['Close'].iloc[-1], "$"))
+            else:
+                st.metric(f"Sembol ({symbol_to_track})", "Yüklenemedi")
         except:
-             st.metric("Apple", "Hata")
+             st.metric(f"Sembol ({symbol_to_track})", "Hata")
 
     st.markdown("---")
     
@@ -83,19 +90,20 @@ if page == "Piyasa Özeti":
     g_col1, g_col2 = st.columns(2)
     
     with g_col1:
-        st.subheader("🍏 Apple (Son 1 Ay)")
+        st.subheader(f"📈 {symbol_to_track} (Son 1 Ay)")
         try:
-            aapl_hist = get_yfinance_data("AAPL", period="1mo")
-            if not aapl_hist.empty:
-                fig = px.line(aapl_hist, y="Close", title="AAPL Günlük Kapanış")
+            symbol_hist = get_yfinance_data(symbol_to_track, period="1mo")
+            if not symbol_hist.empty:
+                fig = px.line(symbol_hist, y="Close", title=f"{symbol_to_track} Günlük Kapanış")
                 st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning(f"{symbol_to_track} için grafik verisi bulunamadı.")
         except Exception as e:
             st.error(f"Veri alınamadı: {e}")
 
     with g_col2:
         st.subheader("🇹🇷 BIST 30 (Son 1 Ay)")
         try:
-            # borsapy functions already cached in modules
             xu030_hist = bp.Index("XU030").history(period="1ay")
             if xu030_hist is not None and not xu030_hist.empty:
                 fig2 = px.line(xu030_hist, y="Close", title="BIST30 Kapanış")
@@ -127,7 +135,6 @@ elif page == "Hisse Tarama":
 elif page == "Fon Analizi":
     st.title("📈 Fon Analizi")
     
-    # Config'den varsayılan fonu al
     default_fund = config.SYMBOLS["funds"][0] if config.SYMBOLS["funds"] else "TCD"
     fund_code = st.text_input("Fon Kodu Giriniz (Örn: TCD, AFT, IPV)", default_fund)
     
@@ -138,18 +145,15 @@ elif page == "Fon Analizi":
         if data["error"]:
             st.error(f"Hata oluştu: {data['error']}")
         else:
-            # Üst Bilgiler
             f_col1, f_col2, f_col3 = st.columns(3)
             f_col1.metric("Fon Adı", data['info']['title'])
             f_col2.metric("Fiyat", format_price(data['info']['price']))
             f_col3.metric("Kategori", data['info']['category'])
             
-            # Getiriler Tablosu
             st.subheader("Dönemsel Getiriler (%)")
             ret_df = pd.DataFrame([data['returns']])
             st.table(ret_df)
             
-            # Varlık Dağılımı (Pasta Grafik)
             st.subheader("Varlık Dağılımı")
             alloc = data['allocation']
             if alloc is not None and not alloc.empty:
@@ -168,27 +172,28 @@ elif page == "Fon Analizi":
 elif page == "Bilgi Notu":
     st.title("📝 Günlük Bilgi Notu & Takvim")
     
-    data = get_market_summary()
+    # Ekonomik Takvim Filtresi
+    cal_filter = st.selectbox("Takvim Filtresi", ["Türkiye (TR)", "ABD (US)", "Global (All)"])
+    filter_map = {"Türkiye (TR)": "TR", "ABD (US)": "US", "Global (All)": "ALL"}
     
-    # Tahviller
+    data = get_market_summary(calendar_country=filter_map[cal_filter])
+    
     st.subheader("Tahvil Piyasası")
     b_col1, b_col2 = st.columns(2)
     b_col1.metric("TR 2 Yıllık Tahvil", f"%{data['bond_2y'] or '---'}")
     b_col2.metric("TR 10 Yıllık Tahvil", f"%{data['bond_10y'] or '---'}")
     
-    # Portfolio Targets summary from config
     st.sidebar.markdown("### Hedef Portföy")
     for category, percentage in config.PORTFOLIO_TARGETS.items():
         st.sidebar.write(f"- {category}: %{percentage}")
 
     st.info("Mevduat Faizi (Ortalama/Tahmini): %45-50 seviyelerinde")
     
-    # Takvim
-    st.subheader("📅 Ekonomik Takvim (Bu Hafta - TR Önemli)")
+    st.subheader(f"📅 Ekonomik Takvim ({cal_filter})")
     cal = data['calendar']
     if cal is not None and not cal.empty:
         disp_cols = ['Date', 'Time', 'Event', 'Actual', 'Forecast', 'Previous']
         final_cols = [c for c in disp_cols if c in cal.columns]
         st.dataframe(cal[final_cols], use_container_width=True)
     else:
-        st.write("Önemli bir veri akışı bulunmuyor.")
+        st.write("Seçilen filtre için önemli bir veri akışı bulunmuyor.")
