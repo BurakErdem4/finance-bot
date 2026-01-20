@@ -26,8 +26,14 @@ def get_sentiment_score(symbol):
         ticker = yf.Ticker(symbol)
         news = ticker.news
         
-        if not news:
-            return {"score": 0, "label": "VERİ YOK", "title": "Haber bulunamadı", "is_fresh": False, "time_label": "---"}
+        if not news or len(news) == 0:
+            return {
+                "score": 0, 
+                "label": "NÖTR", 
+                "title": "Piyasa ile ilgili güncel akış bulunamadı.", 
+                "is_fresh": False, 
+                "time_label": "---"
+            }
             
         # Get the latest news item (usually first in list)
         latest_item = news[0]

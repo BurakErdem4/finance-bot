@@ -7,7 +7,7 @@ import numpy as np
 def get_benchmark_data():
     """
     Fetches 1 year of historical data for USD, Gold, and BIST30.
-    Uses a master timeline to align different markets.
+    Robust implementation with Master Timeline and partial failure tolerance.
     """
     symbols = {
         "Dolar (USD/TRY)": "TRY=X",
@@ -15,48 +15,55 @@ def get_benchmark_data():
         "BIST 30": "XU030.IS"
     }
     
-    # Create Master Timeline: All days in the last year
+    # Adım 1: Zaman Omurgası (Master Timeline)
     end_date = pd.Timestamp.now()
     start_date = end_date - pd.DateOffset(years=1)
     master_index = pd.date_range(start=start_date, end=end_date, freq='D')
     combined_df = pd.DataFrame(index=master_index)
     
     found_any = False
+    
+    # Adım 2 & 3: Bağımsız İndirme ve Akıllı Birleştirme
     for label, sym in symbols.items():
         try:
             ticker = yf.Ticker(sym)
-            data = ticker.history(start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))['Close']
+            # Fetch with a slightly wider buffer to ensure we cover the range
+            data = ticker.history(period="1y")['Close']
             
             if not data.empty:
-                # Remove timezone if exists for joining
+                # Timezone removal
                 if data.index.tz is not None:
                     data.index = data.index.tz_localize(None)
                 
-                # Join with master timeline
-                combined_df[label] = data
+                # Reindex to match master timeline exactly (this handles joining)
+                aligned_data = data.reindex(master_index)
+                combined_df[label] = aligned_data
                 found_any = True
             else:
-                st.warning(f"⚠️ {label} verisi çekilemedi, grafikten çıkarıldı.")
+                st.warning(f"⚠️ {label} verisi çekilemedi (Yahoo Finance boş döndü).")
         except Exception as e:
-            st.warning(f"⚠️ {label} hatası: {e}")
+            # Sadece konsola yazalım, kullanıcıyı çok boğmayalım. Veya info ile geçelim.
+            print(f"Benchmark Warning ({label}): {e}")
+            # st.warning(f"{label} alınamadı.") 
             
     if not found_any:
+        st.error("Hiçbir benchmark verisi alınamadı. İnternet bağlantınızı kontrol edin.")
         return pd.DataFrame()
         
-    # Data Cleaning: Forward fill (holidays/weekends) and normalize
-    # We drop columns that are entirely NaN
-    combined_df = combined_df.dropna(axis=1, how='all')
-    
-    # Forward fill gaps
+    # Adım 4: Boşluk Doldurma (Forward Fill)
+    # Hafta sonu boşluklarını Cuma günkü kapanışla doldurur.
     combined_df = combined_df.ffill()
     
-    # Backfill if the start of the year is empty (rare but possible)
+    # Baştaki olası boşluklar için backfill (Opsiyonel ama güvenli)
     combined_df = combined_df.bfill()
     
-    # Normalize: Base 100 based on the first available valid price
+    # Sütunları temizle (Hala tamamen boş olan varsa at)
+    combined_df = combined_df.dropna(axis=1, how='all')
+    
+    # Normalize: Base 100
     for col in combined_df.columns:
         first_valid = combined_df[col].iloc[0]
-        if first_valid != 0:
+        if first_valid and first_valid != 0:
             combined_df[col] = (combined_df[col] / first_valid) * 100
             
     return combined_df
