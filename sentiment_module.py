@@ -37,7 +37,9 @@ def get_sentiment_score(symbol):
             
         # Get the latest news item (usually first in list)
         latest_item = news[0]
-        title = latest_item.get('title', 'Başlıksız Haber')
+        title = latest_item.get('title')
+        if not title:
+            title = 'Piyasa ile ilgili güncel akış bulunamadı.'
         pub_time = latest_item.get('providerPublishTime', time.time())
         
         # Calculate sentiment for the latest title

@@ -7,7 +7,7 @@ import numpy as np
 def get_benchmark_data():
     """
     Fetches 1 year of historical data for USD, Gold, and BIST30.
-    Robust implementation with Master Timeline and partial failure tolerance.
+    Implementation follows the 'Zırhlı Yapı' (Armored Structure) requirements.
     """
     symbols = {
         "Dolar (USD/TRY)": "TRY=X",
@@ -15,58 +15,66 @@ def get_benchmark_data():
         "BIST 30": "XU030.IS"
     }
     
-    # Adım 1: Zaman Omurgası (Master Timeline)
-    end_date = pd.Timestamp.now()
+    # Adım 1 (Zaman Omurgası): 365 günlük boş Master DataFrame
+    # Saat farkı yüzünden eşleşmeme sorununu çözmek için .normalize() kullanıyoruz (Gece 00:00 yapar)
+    end_date = pd.Timestamp.now().normalize()
     start_date = end_date - pd.DateOffset(years=1)
     master_index = pd.date_range(start=start_date, end=end_date, freq='D')
-    combined_df = pd.DataFrame(index=master_index)
+    master_df = pd.DataFrame(index=master_index)
     
     found_any = False
     
-    # Adım 2 & 3: Bağımsız İndirme ve Akıllı Birleştirme
+    # Adım 2 (Bağımsız İndirme)
     for label, sym in symbols.items():
         try:
             ticker = yf.Ticker(sym)
-            # Fetch with a slightly wider buffer to ensure we cover the range
+            # Fetch data (ensure we get enough history)
             data = ticker.history(period="1y")['Close']
             
             if not data.empty:
-                # Timezone removal
+                # Adım 3 (Akıllı Birleştirme)
+                # Remove timezone if exists
                 if data.index.tz is not None:
                     data.index = data.index.tz_localize(None)
                 
-                # Reindex to match master timeline exactly (this handles joining)
+                # Normalize data index to midnight to match master_index
+                data.index = data.index.normalize()
+                
+                # Duplicate index protection (rare but possible after normalize)
+                data = data.groupby(data.index).last()
+                
+                # Reindex data to the master timeline (this performs the join)
                 aligned_data = data.reindex(master_index)
-                combined_df[label] = aligned_data
+                master_df[label] = aligned_data
                 found_any = True
             else:
                 st.warning(f"⚠️ {label} verisi çekilemedi (Yahoo Finance boş döndü).")
         except Exception as e:
-            # Sadece konsola yazalım, kullanıcıyı çok boğmayalım. Veya info ile geçelim.
+            # Adım 5 (Hata Toleransı): Kod çökmez, sadece uyarı verir.
             print(f"Benchmark Warning ({label}): {e}")
-            # st.warning(f"{label} alınamadı.") 
+            st.warning(f"⚠️ {label} güncel verisi alınamadı.")
             
     if not found_any:
         st.error("Hiçbir benchmark verisi alınamadı. İnternet bağlantınızı kontrol edin.")
         return pd.DataFrame()
         
-    # Adım 4: Boşluk Doldurma (Forward Fill)
-    # Hafta sonu boşluklarını Cuma günkü kapanışla doldurur.
-    combined_df = combined_df.ffill()
+    # Adım 4 (Boşluk Doldurma): Forward Fill (Cuma -> Haftasonu)
+    # Simülasyon (random) KESİNLİKLE YOK.
+    master_df = master_df.ffill()
     
-    # Baştaki olası boşluklar için backfill (Opsiyonel ama güvenli)
-    combined_df = combined_df.bfill()
+    # Baştaki olası boşlukları doldur
+    master_df = master_df.bfill()
     
-    # Sütunları temizle (Hala tamamen boş olan varsa at)
-    combined_df = combined_df.dropna(axis=1, how='all')
+    # Sütunları temizle (Tamamen boş olanları at)
+    master_df = master_df.dropna(axis=1, how='all')
     
     # Normalize: Base 100
-    for col in combined_df.columns:
-        first_valid = combined_df[col].iloc[0]
+    for col in master_df.columns:
+        first_valid = master_df[col].iloc[0]
         if first_valid and first_valid != 0:
-            combined_df[col] = (combined_df[col] / first_valid) * 100
+            master_df[col] = (master_df[col] / first_valid) * 100
             
-    return combined_df
+    return master_df
 
 import config
 
