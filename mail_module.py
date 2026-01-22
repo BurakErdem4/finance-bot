@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 import config
 from sentiment_module import get_sentiment_score
 import os
+import time
+import subscription_module
 
 def get_app_secret(key):
     """
@@ -286,9 +288,10 @@ def generate_html(data, sentiments, report_type):
     """
     return html
 
-def send_daily_report(target_email, report_type="Günlük"):
+def send_daily_report(target_email=None, report_type="Günlük"):
     """
     Main function to fetch data, generate HTML and send email.
+    If target_email is None, it sends to ALL subscribers in subscribers.json.
     """
     try:
         # 1. Fetch Market Data
@@ -309,21 +312,43 @@ def send_daily_report(target_email, report_type="Günlük"):
         
         report_date = datetime.now().strftime("%d-%m-%Y")
         
-        message = MIMEMultipart("alternative")
-        message["Subject"] = f"Finans Bülteni - {report_date}"
-        message["From"] = sender_email
-        message["To"] = target_email
-        
-        part = MIMEText(html_content, "html")
-        message.attach(part)
-        
-        # 5. Send
+        # 5. Determine Recipients
+        recipients = []
+        if target_email:
+            recipients = [target_email]
+        else:
+            # Fetch from GitHub/Local file
+            recipients = subscription_module.get_subscribers()
+            
+        if not recipients:
+             return False, "Gönderilecek abone bulunamadı."
+             
+        # 6. Send Loop
+        sent_count = 0
         context = ssl.create_default_context()
+        
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
             server.login(sender_email, password)
-            server.sendmail(sender_email, target_email, message.as_string())
             
-        return True, "Bülten başarıyla gönderildi!"
+            for email in recipients:
+                try:
+                    message = MIMEMultipart("alternative")
+                    message["Subject"] = f"Finans Bülteni - {report_date}"
+                    message["From"] = sender_email
+                    message["To"] = email
+                    
+                    part = MIMEText(html_content, "html")
+                    message.attach(part)
+                    
+                    server.sendmail(sender_email, email, message.as_string())
+                    sent_count += 1
+                    
+                    # Spam protection delay
+                    time.sleep(1) 
+                except Exception as e:
+                    print(f"Failed to send to {email}: {e}")
+            
+        return True, f"Bülten {sent_count} kişiye başarıyla gönderildi!"
         
     except Exception as e:
         return False, f"Hata oluştu: {str(e)}"

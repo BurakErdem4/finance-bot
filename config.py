@@ -38,8 +38,8 @@ NEWSLETTER_ASSETS = {
 
 # Bülten Zamanlaması
 NEWSLETTER_SCHEDULE = {
-    "TR": "10:15",
-    "US": {"winter": "17:45", "summer": "16:45"} # Yaz/Kış saati farkı
+    "TR": {"start": "10:15", "end": "10:30"},
+    "US": {"summer": "16:45", "winter": "17:45"}
 }
 
 # Portföy Hedef Yüzdeleri

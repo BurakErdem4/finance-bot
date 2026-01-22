@@ -18,7 +18,9 @@ from benchmark_module import get_benchmark_data, get_benchmark_summary
 from backtest_module import run_backtest, run_periodic_backtest
 from mail_module import send_daily_report
 from portfolio_manager import add_transaction, get_all_transactions, get_portfolio_balance, get_portfolio_by_category
+from portfolio_manager import add_transaction, get_all_transactions, get_portfolio_balance, get_portfolio_by_category
 from sentiment_module import get_sentiment_score
+import subscription_module
 import paper_trader
 import time
 from datetime import datetime
@@ -108,18 +110,39 @@ page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi"
 
 st.sidebar.markdown("---")
 
-# 📧 Mail Raporlama
-st.sidebar.subheader("📧 Bülten / Rapor")
-target_email = st.sidebar.text_input("Alıcı Maili", st.secrets.get("GMAIL_USER", ""))
-report_type = st.sidebar.selectbox("Rapor Tipi", ["Günlük", "Haftalık"])
+# 📧 Bülten Aboneliği (Yeni Sistem)
+st.sidebar.subheader("📩 Bülten Aboneliği")
+user_email = st.sidebar.text_input("E-posta Adresi", placeholder="ornek@gmail.com")
+if st.sidebar.button("Abone Ol"):
+    if user_email and "@" in user_email:
+        with st.spinner("Abonelik işlemi yapılıyor..."):
+            success, msg = subscription_module.add_subscriber(user_email)
+            if success:
+                st.sidebar.success(msg)
+            else:
+                st.sidebar.error(msg)
+    else:
+        st.sidebar.warning("Geçerli bir e-posta giriniz.")
 
-if st.sidebar.button("Manuel Gönder"):
-    with st.spinner("Rapor gönderiliyor..."):
-        success, message = send_daily_report(target_email, report_type)
-        if success:
-            st.sidebar.success(message)
-        else:
-            st.sidebar.error(message)
+st.sidebar.markdown("---")
+
+# 📧 Manuel Raporlama (Admin)
+st.sidebar.subheader("📧 Manuel Rapor Gönder (Admin)")
+admin_pass = st.sidebar.text_input("Yönetici Şifresi (Opsiyonel)", type="password")
+r_type = st.sidebar.selectbox("Rapor Tipi", ["Günlük", "Haftalık"])
+
+if st.sidebar.button("Tüm Abonelere Gönder"):
+    # Basit bir güvenlik, herkes butona basıp flood yapmasın diye
+    if admin_pass == st.secrets.get("ADMIN_PASS", "1234"): 
+        with st.spinner("Tüm abonelere gönderiliyor..."):
+            success, message = send_daily_report(None, r_type) # None -> Tüm liste
+            if success:
+                st.sidebar.success(message)
+            else:
+                st.sidebar.error(message)
+    else:
+        st.sidebar.error("Yetkisiz işlem.")
+
 
 # ⏰ Otomatik Zamanlayıcı
 st.sidebar.markdown("---")
@@ -137,37 +160,42 @@ if enable_scheduler:
     now = datetime.now()
     curr_time = now.strftime("%H:%M")
     
-    # Yaz/Kış Saati Basit Mantık (Mart-Kasım arası Yaz)
-    # Tam doğruluk için timezone kütüphanesi kullanılabilir ama manuel ayar da yeterli
-    month = now.month
-    is_summer = 3 < month < 11
-    us_time = config.NEWSLETTER_SCHEDULE["US"]["summer"] if is_summer else config.NEWSLETTER_SCHEDULE["US"]["winter"]
-    tr_time = config.NEWSLETTER_SCHEDULE["TR"]
-    
-    status_placeholder.info(f"⏳ Takip: {curr_time} \nTR: {tr_time} | US: {us_time}")
-    
-    # State check for daily sending
-    today_str = now.strftime("%Y-%m-%d")
-    if "sent_log" not in st.session_state:
-        st.session_state.sent_log = {} # {"TR": "2024-01-01", "US": "2024-01-01"}
+    try:
+        # Yaz/Kış Saati Basit Mantık (Mart-Kasım arası Yaz)
+        # Tam doğruluk için timezone kütüphanesi kullanılabilir ama manuel ayar da yeterli
+        month = now.month
+        is_summer = 3 < month < 11
+        us_time = config.NEWSLETTER_SCHEDULE["US"]["summer"] if is_summer else config.NEWSLETTER_SCHEDULE["US"]["winter"]
         
-    # TR Check
-    if curr_time == tr_time and st.session_state.sent_log.get("TR") != today_str:
-        with st.spinner("TR Raporu gönderiliyor..."):
-            send_daily_report(target_email, "Günlük - TR")
-            st.session_state.sent_log["TR"] = today_str
-            st.success("TR Raporu gönderildi!")
+        # TR Time: start/end aralığı veya tek saat
+        tr_conf = config.NEWSLETTER_SCHEDULE["TR"]
+        tr_time = tr_conf if isinstance(tr_conf, str) else tr_conf.get("start", "10:15")
+        
+        status_placeholder.info(f"⏳ Takip: {curr_time} \nTR: {tr_time} | US: {us_time}")
+        
+        # State check for daily sending
+        today_str = now.strftime("%Y-%m-%d")
+        if "sent_log" not in st.session_state:
+            st.session_state.sent_log = {} # {"TR": "2024-01-01", "US": "2024-01-01"}
             
-    # US Check
-    if curr_time == us_time and st.session_state.sent_log.get("US") != today_str:
-        with st.spinner("ABD Raporu gönderiliyor..."):
-            send_daily_report(target_email, "Günlük - ABD")
-            st.session_state.sent_log["US"] = today_str
-            st.success("ABD Raporu gönderildi!")
-            
+        # TR Check
+        if curr_time == tr_time and st.session_state.sent_log.get("TR") != today_str:
+            with st.spinner("TR Raporu gönderiliyor..."):
+                send_daily_report(None, "Günlük - TR")
+                st.session_state.sent_log["TR"] = today_str
+                st.success("TR Raporu gönderildi!")
+                
+        # US Check
+        if curr_time == us_time and st.session_state.sent_log.get("US") != today_str:
+            with st.spinner("ABD Raporu gönderiliyor..."):
+                send_daily_report(None, "Günlük - ABD")
+                st.session_state.sent_log["US"] = today_str
+                st.success("ABD Raporu gönderildi!")
+                
+    except Exception as e:
+        status_placeholder.warning(f"Zamanlayıcı Hatası: {str(e)}")
+        
     # Auto-rerun loop (Sleep 60s)
-    # Streamlit'in rerun yapması için `time.sleep` kullanıp tekrar çağırıyoruz.
-    # Ancak UI donmaması için butonla değil, aktif kalınca çalışacak.
     time.sleep(30)
     st.rerun()
 
