@@ -20,6 +20,8 @@ from mail_module import send_daily_report
 from portfolio_manager import add_transaction, get_all_transactions, get_portfolio_balance, get_portfolio_by_category
 from sentiment_module import get_sentiment_score
 import paper_trader
+import time
+from datetime import datetime
 
 # Veritabanını başlat
 init_db()
@@ -107,17 +109,67 @@ page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi"
 st.sidebar.markdown("---")
 
 # 📧 Mail Raporlama
-st.sidebar.subheader("📧 Rapor Gönder")
+st.sidebar.subheader("📧 Bülten / Rapor")
 target_email = st.sidebar.text_input("Alıcı Maili", st.secrets.get("GMAIL_USER", ""))
 report_type = st.sidebar.selectbox("Rapor Tipi", ["Günlük", "Haftalık"])
 
-if st.sidebar.button("Gönder"):
+if st.sidebar.button("Manuel Gönder"):
     with st.spinner("Rapor gönderiliyor..."):
         success, message = send_daily_report(target_email, report_type)
         if success:
             st.sidebar.success(message)
         else:
             st.sidebar.error(message)
+
+# ⏰ Otomatik Zamanlayıcı
+st.sidebar.markdown("---")
+st.sidebar.subheader("⏰ Otomatik Zamanlayıcı")
+enable_scheduler = st.sidebar.checkbox("Zamanlayıcıyı Aktif Et")
+
+if enable_scheduler:
+    status_placeholder = st.sidebar.empty()
+    
+    # Basit bir döngü
+    # Not: Bu döngü UI'ı bloklayabilir, bot modu gibi düşünülmeli
+    if "last_check" not in st.session_state:
+        st.session_state.last_check = time.time()
+        
+    now = datetime.now()
+    curr_time = now.strftime("%H:%M")
+    
+    # Yaz/Kış Saati Basit Mantık (Mart-Kasım arası Yaz)
+    # Tam doğruluk için timezone kütüphanesi kullanılabilir ama manuel ayar da yeterli
+    month = now.month
+    is_summer = 3 < month < 11
+    us_time = config.NEWSLETTER_SCHEDULE["US"]["summer"] if is_summer else config.NEWSLETTER_SCHEDULE["US"]["winter"]
+    tr_time = config.NEWSLETTER_SCHEDULE["TR"]
+    
+    status_placeholder.info(f"⏳ Takip: {curr_time} \nTR: {tr_time} | US: {us_time}")
+    
+    # State check for daily sending
+    today_str = now.strftime("%Y-%m-%d")
+    if "sent_log" not in st.session_state:
+        st.session_state.sent_log = {} # {"TR": "2024-01-01", "US": "2024-01-01"}
+        
+    # TR Check
+    if curr_time == tr_time and st.session_state.sent_log.get("TR") != today_str:
+        with st.spinner("TR Raporu gönderiliyor..."):
+            send_daily_report(target_email, "Günlük - TR")
+            st.session_state.sent_log["TR"] = today_str
+            st.success("TR Raporu gönderildi!")
+            
+    # US Check
+    if curr_time == us_time and st.session_state.sent_log.get("US") != today_str:
+        with st.spinner("ABD Raporu gönderiliyor..."):
+            send_daily_report(target_email, "Günlük - ABD")
+            st.session_state.sent_log["US"] = today_str
+            st.success("ABD Raporu gönderildi!")
+            
+    # Auto-rerun loop (Sleep 60s)
+    # Streamlit'in rerun yapması için `time.sleep` kullanıp tekrar çağırıyoruz.
+    # Ancak UI donmaması için butonla değil, aktif kalınca çalışacak.
+    time.sleep(30)
+    st.rerun()
 
 st.sidebar.markdown("---")
 

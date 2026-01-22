@@ -1,0 +1,35 @@
+name: Finance Newsletter Bot
+
+on:
+  schedule:
+    # TR Saati 10:15 (~07:15 UTC)
+    - cron: '15 7 * * *'
+    # TR Saati 16:45 (~13:45 UTC, Yaz Saati) veya 17:45 (Kış Saati)
+    # Sabit olarak 13:45 UTC ayarlıyoruz, saat değişimlerinde 1 saat kayabilir
+    - cron: '45 13 * * *'
+  workflow_dispatch: # Manuel tetikleme için
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Finance Bot
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
+          TARGET_EMAIL: ${{ secrets.TARGET_EMAIL }} # Opsiyonel
+        run: |
+          python run_scheduler.py
