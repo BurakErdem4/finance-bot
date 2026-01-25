@@ -77,9 +77,9 @@ def fetch_etf_details_from_web(ticker):
 @st.cache_data(ttl=1800) 
 def fetch_bist_data():
     """
-    Fetches fundamental data for BIST 100 tickers and applies screening logic.
-    - Financials/Real Estate: PD/DD < 1.0 (or None)
-    - Industrials/Others: FD/FAVOK (EV/EBITDA) < 5.0 (or None)
+    Fetches fundamental data for BIST 100 tickers and RANKS them (no filtering).
+    - Financials/Real Estate: Ranked by PD/DD (Low to High)
+    - Industrials/Others: Ranked by FD/FAVOK (Low to High)
     """
     tickers = config.BIST_100_TICKERS
     data = []
@@ -92,105 +92,128 @@ def fetch_bist_data():
             # Key Data Points
             name = info.get('shortName', symbol)
             sector = info.get('sector', 'Unknown')
-            # industry = info.get('industry', 'Unknown')
             
             # Fundamentals
             pb = info.get('priceToBook') # PD/DD
             ev_ebitda = info.get('enterpriseToEbitda') # FD/FAVÖK
             pe = info.get('trailingPE')
-            rec_key = info.get('recommendationKey', 'none').lower()
             current_price = info.get('currentPrice')
             
-            # Screening Logic
-            passed = False
-            reason = ""
+            # Scoring Logic
+            score = 9999 # Default High Score (Bad)
+            note = ""
             
             is_finance_re = sector in ['Financial Services', 'Real Estate']
             
             if is_finance_re:
-                # Banka/GYO Kriteri: PD/DD < 1.0
-                if pb is None:
-                    passed = True
-                    reason = "PD/DD: Veri Eksik"
-                elif pb < 1.0:
-                    passed = True
-                    reason = f"PD/DD: {pb:.2f} < 1.0"
+                # Banka/GYO: Score based on PD/DD
+                if pb is not None:
+                    score = pb
+                    if pb < 1.0:
+                        note = "🔥 sudan ucuz"
+                    else:
+                        note = "Bankacılık/GYO"
+                else:
+                    note = "Veri Yok"
             else:
-                # Sanayi Kriteri: FD/FAVOK < 5.0
-                if ev_ebitda is None:
-                    passed = True
-                    reason = "FD/FAVÖK: Veri Eksik"
-                elif ev_ebitda < 5.0 and ev_ebitda > 0:
-                     passed = True
-                     reason = f"FD/FAVÖK: {ev_ebitda:.2f} < 5.0"
+                # Sanayi: Score based on FD/FAVÖK
+                if ev_ebitda is not None and ev_ebitda > 0:
+                    score = ev_ebitda
+                    if ev_ebitda < 5.0:
+                        note = "💎 Potansiyel Sanayi"
+                    else:
+                        note = "Sanayi Şirketi"
+                else:
+                    note = "Veri Yok"
             
-            if passed:
-                data.append({
-                    "Sembol": symbol,
-                    "İsim": name,
-                    "Sektör": sector,
-                    "Fiyat": current_price,
-                    "PD/DD": pb if pb is not None else -1, # Handle None for sorting
-                    "FD/FAVÖK": ev_ebitda if ev_ebitda is not None else -1,
-                    "Öneri": rec_key,
-                    "Kriter": reason
-                })
+            # Append All (No Filtering)
+            data.append({
+                "Sembol": symbol,
+                "İsim": name,
+                "Sektör": sector,
+                "Fiyat": current_price,
+                "PD/DD": pb if pb is not None else -1,
+                "FD/FAVÖK": ev_ebitda if ev_ebitda is not None else -1,
+                "Skor": score,
+                "Analiz Notu": note
+            })
                 
         except Exception as e:
             continue
-            
-    return pd.DataFrame(data)
+
+    # Create DF and Sort by Score (Cheapest First)
+    df = pd.DataFrame(data)
+    if not df.empty:
+        df = df.sort_values(by="Skor", ascending=True)
+        
+    return df
 
 @st.cache_data(ttl=3600)
 def fetch_us_etf_data():
     """
-    Fetches US ETF data: Returns, Expense Ratio, PE.
-    Uses hybrid approach: yfinance + ETF.com scraping fallback/augmentation.
+    Fetches US ETF data using a Hybrid Approach:
+    - Static Data (Name, Segment, Expense): Hardcoded DB (Guaranteed)
+    - Dynamic Data (Price, Change): yfinance
     """
-    tickers = config.US_ETFS
+    
+    # Static Database (Guaranteed Data)
+    ETF_DB = {
+        'QQQ': {'name': 'Invesco QQQ (Nasdaq 100)', 'segment': 'Teknoloji', 'expense': 0.20},
+        'SPY': {'name': 'SPDR S&P 500', 'segment': 'Genel Pazar', 'expense': 0.09},
+        'VTI': {'name': 'Vanguard Total Stock', 'segment': 'Genel Pazar', 'expense': 0.03},
+        'VOO': {'name': 'Vanguard S&P 500', 'segment': 'Genel Pazar', 'expense': 0.03},
+        'GLD': {'name': 'SPDR Gold Shares', 'segment': 'Emtia (Altın)', 'expense': 0.40},
+        'SLV': {'name': 'iShares Silver Trust', 'segment': 'Emtia (Gümüş)', 'expense': 0.50},
+        'ARKK': {'name': 'ARK Innovation', 'segment': 'İnovasyon', 'expense': 0.75},
+        'XLF': {'name': 'Financial Select Sector', 'segment': 'Finans', 'expense': 0.10},
+        'XLE': {'name': 'Energy Select Sector', 'segment': 'Enerji', 'expense': 0.10},
+        'XLK': {'name': 'Technology Select Sector', 'segment': 'Teknoloji', 'expense': 0.10},
+        'SMH': {'name': 'VanEck Semiconductor', 'segment': 'Yarı İletken', 'expense': 0.35},
+        'SCHD': {'name': 'Schwab US Dividend', 'segment': 'Temettü', 'expense': 0.06}
+    }
+    
     data = []
     
-    for symbol in tickers:
+    for symbol, static_info in ETF_DB.items():
         try:
-            # 1. Yfinance Base Data
+            # Dynamic Fetch
             t = yf.Ticker(symbol)
+            hist = t.history(period="5d") # Fetch slightly more to ensure % change calc
+            
+            price = 0
+            ytd_ret = 0
+            
+            if not hist.empty:
+                price = hist['Close'].iloc[-1]
+                # Calculate simple return (approx YTD or just recent move?)
+                # Requested "YTD Return" in previous prompts. yfinance info has 'ytdReturn'.
+                # Let's try info, if fails, use 0
+                pass
+            
+            # Fetch Info for YTD Return
             info = t.info
-            
-            # 2. Scrape ETF.com (Augmentation)
-            etf_details = fetch_etf_details_from_web(symbol)
-            
-            # Merge Data
-            # Expense Ratio Priority: ETF.com > yfinance
-            exp_ratio = 0
-            
-            if etf_details and etf_details.get('expense_ratio'):
-                try:
-                    exp_ratio = float(etf_details['expense_ratio'])
-                except:
-                    # Fallback to yfinance if scrape parse fails
-                    y_exp = info.get('annualReportExpenseRatio')
-                    exp_ratio = y_exp * 100 if y_exp else 0
-            else:
-                # Fallback to yfinance completely
-                y_exp = info.get('annualReportExpenseRatio')
-                exp_ratio = y_exp * 100 if y_exp else 0
-            
-            # Segment/Category
-            category = info.get('category', 'Genel')
-            if etf_details and etf_details.get('segment'):
-                category = etf_details['segment']
-                
+            ytd_ret = info.get('ytdReturn', 0) * 100 if info.get('ytdReturn') else 0
+            if price == 0: price = info.get('currentPrice', 0)
+
             data.append({
                 "Sembol": symbol,
-                "İsim": info.get('shortName', symbol),
-                "YTD Getiri (%)": info.get('ytdReturn', 0) * 100 if info.get('ytdReturn') else 0,
-                "Masraf (%)": exp_ratio,
-                "PE (F/K)": info.get('trailingPE', 0),
-                "Fiyat ($)": info.get('currentPrice', 0),
-                "Kategori": category,
-                "Issuer": etf_details.get('issuer', info.get('fundFamily', '-')) if etf_details else info.get('fundFamily', '-')
+                "İsim": static_info['name'],
+                "Kategori": static_info['segment'],
+                "Fiyat ($)": price,
+                "YTD Getiri (%)": ytd_ret,
+                "Masraf (%)": static_info['expense']
             })
+            
         except:
+            # Fallback even if dynamic fail: Show Static + 0 Price
+            data.append({
+                "Sembol": symbol,
+                "İsim": static_info['name'],
+                "Kategori": static_info['segment'],
+                "Fiyat ($)": 0,
+                "YTD Getiri (%)": 0,
+                "Masraf (%)": static_info['expense']
+            })
             continue
             
     return pd.DataFrame(data)

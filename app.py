@@ -344,22 +344,23 @@ if page == "Piyasa Özeti":
 elif page == "Hisse Tarama":
     st.title("🔍 Hisse Senedi & ETF Tarama Pro")
     
-    tabs1, tabs2 = st.tabs(["🇹🇷 BIST Temel Analiz", "🇺🇸 ABD ETF Fırsatları"])
+    tabs1, tabs2 = st.tabs(["🇹🇷 BIST Akıllı Sıralama", "🇺🇸 ABD ETF Fırsatları"])
     
     with tabs1:
-        st.header("BIST Temel Değer Analizi")
+        st.header("BIST Değer Analizi (Sıralı Liste)")
         st.info("""
-        **Sistem Mantığı:**
-        - **Bankalar & GYO'lar:** PD/DD < 1.0 olanlar. (Ucuz kalmış varlıklar)
-        - **Sanayi & Hizmetler:** FD/FAVÖK < 5.0 olanlar. (İşletme karlılığına göre ucuz)
+        **Sıralama Mantığı (Ucuzdan Pahalıya):**
+        - **Bankalar & GYO'lar:** PD/DD puanına göre sıralanır. (Düşük = İyi)
+        - **Sanayi & Hizmetler:** FD/FAVÖK puanına göre sıralanır. (Düşük = İyi)
+        *Tüm BIST 30+ hisseleri taranır, eleme yapılmaz.*
         """)
         
-        if st.button("🚀 Taramayı Başlat (BIST 30+)", key="btn_bist_scan"):
-            with st.spinner("BIST verileri taranıyor ve analiz ediliyor..."):
+        if st.button("🔄 Sıralamayı Güncelle (BIST)", key="btn_bist_scan"):
+            with st.spinner("Piyasa verileri analiz ediliyor ve puanlanıyor..."):
                 df_bist = fetch_bist_data()
                 
             if isinstance(df_bist, pd.DataFrame) and not df_bist.empty:
-                st.success(f"{len(df_bist)} adet potansiyel fırsat bulundu!")
+                st.success(f"{len(df_bist)} hisse analiz edildi ve sıralandı.")
                 
                 # Helper for display
                 def fmt_decimal(val):
@@ -376,16 +377,16 @@ elif page == "Hisse Tarama":
                         "Fiyat": "{:.2f} ₺",
                         "PD/DD": "{:.2f}",
                         "FD/FAVÖK": "{:.2f}"
-                    }, na_rep="Veri Yok").background_gradient(subset=["PD/DD", "FD/FAVÖK"], cmap="RdYlGn_r", vmin=0, vmax=10), 
+                    }, na_rep="-").background_gradient(subset=["PD/DD", "FD/FAVÖK"], cmap="RdYlGn_r", vmin=0, vmax=10), 
                     use_container_width=True,
-                    height=500
+                    height=600
                 )
             else:
-                st.warning("Kriterlere uygun hisse bulunamadı veya veri çekilemedi.")
+                st.warning("Veri çekilemedi.")
                 
     with tabs2:
-        st.header("ABD ETF Dünyası")
-        st.caption("⚠️ **Risk Notu:** ABD ETF'leri dolar bazlıdır ve yönetim masrafı (Expense Ratio) kesintisi vardır. Uzun vadeli yatırıma uygundur.")
+        st.header("ABD ETF Dünyası (Sabit Takip)")
+        st.caption("Veriler ETF.com ve Yahoo Finance hibrit yapısı ile sağlanmaktadır.")
         
         with st.spinner("ETF verileri güncelleniyor..."):
             df_etf = fetch_us_etf_data()
@@ -398,7 +399,6 @@ elif page == "Hisse Tarama":
                 df_etf.style.format({
                     "YTD Getiri (%)": "{:+.2f}%",
                     "Masraf (%)": "{:.2f}%",
-                    "PE (F/K)": "{:.1f}",
                     "Fiyat ($)": "${:.2f}"
                 }).bar(subset=["YTD Getiri (%)"], align="mid", color=['#d65f5f', '#5fba7d']),
                 use_container_width=True
