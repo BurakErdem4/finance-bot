@@ -11,6 +11,7 @@ from sentiment_module import get_sentiment_score
 import os
 import time
 import subscription_module
+import pytz
 
 def get_app_secret(key):
     """
@@ -167,7 +168,8 @@ def get_category_sentiment():
     return sentiments
 
 def generate_html(data, sentiments, report_type):
-    report_date = datetime.now().strftime("%d.%m.%Y %H:%M")
+    tz = pytz.timezone('Europe/Istanbul')
+    report_date = datetime.now(tz).strftime("%d.%m.%Y %H:%M")
     
     # CSS Styles
     style = """
@@ -313,7 +315,8 @@ def send_newsletter(target_email=None, report_type="Günlük"):
         if not sender_email or not password:
              return False, "E-posta bilgileri (GMAIL_USER/GMAIL_PASSWORD) bulunamadı."
         
-        report_date = datetime.now().strftime("%d-%m-%Y")
+        tz = pytz.timezone('Europe/Istanbul')
+        report_date = datetime.now(tz).strftime("%d-%m-%Y")
         
         # 5. Determine Recipients
         recipients = []
