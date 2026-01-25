@@ -59,8 +59,9 @@ def get_sentiment_score(symbol):
             "label": label,
             "title": title,
             "is_fresh": is_fresh,
-            "time_label": time_label
+            "time_label": time_label,
+            "timestamp": pub_time
         }
     except Exception as e:
         print(f"Sentiment error for {symbol}: {e}")
-        return {"score": 0, "label": "HATA", "title": "Hata oluştu", "is_fresh": False, "time_label": "---"}
+        return {"score": 0, "label": "HATA", "title": "Hata oluştu", "is_fresh": False, "time_label": "---", "timestamp": 0}

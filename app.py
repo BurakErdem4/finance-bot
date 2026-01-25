@@ -16,7 +16,7 @@ from rebalance_module import calculate_rebalance, get_rebalance_summary
 from analysis_module import calculate_sma, calculate_rsi, get_technical_signals
 from benchmark_module import get_benchmark_data, get_benchmark_summary
 from backtest_module import run_backtest, run_periodic_backtest
-from mail_module import send_newsletter
+from mail_module import send_newsletter, fetch_newsletter_data
 from portfolio_manager import add_transaction, get_all_transactions, get_portfolio_balance, get_portfolio_by_category
 
 from sentiment_module import get_sentiment_score
@@ -213,89 +213,107 @@ if enable_scheduler:
 
 st.sidebar.markdown("---")
 
-# --- 1. PİYASA ÖZETİ ---
+# --- 1. PİYASA ÖZETİ (DASHBOARD) ---
 if page == "Piyasa Özeti":
-    st.title("📊 Piyasa Özeti")
+    st.title("📊 Piyasa Kokpiti")
     
-    # A. Gerçek Portföy Özeti (En Üstte)
-    with st.spinner("Cüzdan özeti hazırlanıyor..."):
-        holdings = get_portfolio_balance()
+    # 1. Geniş Pazar Tablosu
+    st.subheader("🌍 Küresel Piyasalar ve Varlıklar")
     
-    if holdings:
-        total_portfolio_val = sum([h['total_value_tl'] for h in holdings])
-        st.metric("💰 Toplam Portföy Değeri", f"{total_portfolio_val:,.2f} ₺")
+    with st.spinner("Piyasa verileri güncelleniyor (Bülten Modu)..."):
+        # Reuse newsletter logic
+        raw_data = fetch_newsletter_data()
         
-        # Pasta Grafik
-        pie_data = [{"Sembol": h['symbol'], "Değer": h['total_value_tl']} for h in holdings]
-        pie_df = pd.DataFrame(pie_data)
-        fig_pie = px.pie(pie_df, values="Değer", names="Sembol", title="Cüzdan Dağılımı (Gerçek)")
-        fig_pie.update_layout(template="plotly_dark", height=400)
-        st.plotly_chart(fig_pie, use_container_width=True)
-        st.markdown("---")
-
-    # B. Global Sembol Seçimi
-    symbol_to_track = st.text_input("Takip Edilecek Sembol (Yfinance)", "AAPL").upper()
-    
-    # Veri Çekme
-    with st.spinner(f"{symbol_to_track} verileri analiz ediliyor..."):
-        symbol_hist_full = get_yfinance_data(symbol_to_track, period="1y")
-    
-    # Üst Bilgi Kartları (Metrics)
-    col1, col2, col3, col4, col5 = st.columns(5)
-    market_data = get_market_summary()
-    
-    with col1:
-        st.metric("USD/TRY", format_price(market_data['usd']))
-    with col2:
-        st.metric("EUR/TRY", format_price(market_data['eur']))
+    # Flatten Data for Table
+    table_rows = []
+    for cat, assets in raw_data.items():
+        for asset in assets:
+            # Handle manual/error cases gracefully
+            price = asset.get('price', 0)
+            d_chg = asset.get('daily', 0)
+            w_chg = asset.get('weekly', 0)
+            m_chg = asset.get('monthly', 0)
+            
+            # Format Price
+            if "USD" in asset['name'] or "EUR" in asset['name']: p_str = f"{price:.4f}"
+            elif "Altın" in asset['name'] or "Gümüş" in asset['name']: p_str = f"{price:.2f}"
+            else: p_str = f"{price:,.2f}"
+                
+            table_rows.append({
+                "Kategori": cat,
+                "Varlık İsmi": asset['name'],
+                "Son Fiyat": p_str,
+                "Günlük (%)": d_chg,
+                "Haftalık (%)": w_chg,
+                "Aylık (%)": m_chg
+            })
+            
+    if table_rows:
+        df_market = pd.DataFrame(table_rows)
         
-    with col3:
-        try:
-            xu030 = bp.Index("XU030")
-            val = xu030.info.get('last') if hasattr(xu030, 'info') else "---"
-            st.metric("BIST 30", format_price(val))
-        except:
-            st.metric("BIST 30", "Hata")
+        # Color Styling Function
+        def color_coding(val):
+            if isinstance(val, (int, float)):
+                color = '#4CAF50' if val > 0 else '#FF5252' if val < 0 else '#FFFFFF'
+                return f'color: {color}'
+            return ''
 
-    with col4:
-        if not symbol_hist_full.empty:
-            st.metric(f"Sembol ({symbol_to_track})", format_price(symbol_hist_full['Close'].iloc[-1], "$"))
-        else:
-            st.metric(f"Sembol ({symbol_to_track})", "Yüklenemedi")
-
-    with col5:
-        with st.spinner("Sentiment analiz ediliyor..."):
-            s = get_sentiment_score(symbol_to_track)
-            
-            # Determine Color
-            if not s['is_fresh']:
-                bg_color = "#424242" # Gray
-            elif s['label'] == "POZİTİF":
-                bg_color = "#2E7D32" # Green
-            elif s['label'] == "NEGATİF":
-                bg_color = "#C62828" # Red
-            else:
-                bg_color = "#1565C0" # Blue/Neutral
-            
-            st.markdown(f"""
-            <div style="background-color:{bg_color}; padding:10px; border-radius:10px; color:white; text-align:center;">
-                <p style="margin:0; font-size:0.8em; opacity:0.8;">Haber Algısı ({s['time_label']})</p>
-                <h4 style="margin:0;">{s['label']}</h4>
-                <p style="margin:0; font-size:0.9em; font-weight:bold;">Skor: {s['score']}</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            if not s['is_fresh']:
-                st.caption("⚠️ Güncel akış sağlanamadı, son haber gösteriliyor.")
-            
-            st.caption(f"📢 Analiz Edilen Haber: {s['title']}")
-
+        # Apply styling
+        # Note: formatting floats in pandas display
+        st.dataframe(
+            df_market.style.format({
+                "Günlük (%)": "{:+.2f}%",
+                "Haftalık (%)": "{:+.2f}%",
+                "Aylık (%)": "{:+.2f}%"
+            }).map(color_coding, subset=["Günlük (%)", "Haftalık (%)", "Aylık (%)"]),
+            use_container_width=True,
+            height=500
+        )
+    else:
+        st.warning("Veri alınamadı.")
+        
     st.markdown("---")
     
-    if not symbol_hist_full.empty:
-        display_technical_analysis(symbol_hist_full, symbol_to_track)
+    # 2. Akıllı Haber Akışı
+    st.subheader("📢 Piyasa Haberleri ve Beklentiler")
+    
+    # Define key assets to scan for news
+    news_targets = ["XU100.IS", "USDTRY=X", "BTC-USD", "GC=F", "AAPL", "NVDA", "THYAO.IS"]
+    
+    with st.spinner("Haber akışları taranıyor ve analiz ediliyor..."):
+        news_items = []
+        for sym in news_targets:
+            s_data = get_sentiment_score(sym)
+            if s_data and s_data.get('timestamp', 0) > 0 and s_data.get('is_fresh'): # Only fresh news? Or all? User said "En Yeni". Let's include all but prioritizing fresh.
+                # Enrich with symbol name roughly
+                s_data['symbol'] = sym
+                news_items.append(s_data)
+        
+        # Sort: 1. Timestamp (Desc), 2. Score (Abs Desc - Impact)
+        # Actually user said: Prioritize Newest, then Impact.
+        # So primary sort key is timestamp.
+        news_items.sort(key=lambda x: (x.get('timestamp', 0), abs(x.get('score', 0))), reverse=True)
+        
+    # Display News
+    if news_items:
+        for news in news_items:
+            # Color badge
+            lbl = news['label']
+            if lbl == "POZİTİF": color = "green"
+            elif lbl == "NEGATİF": color = "red"
+            else: color = "gray"
+            
+            with st.expander(f"{news['time_label']} | {news['title']} ({news['symbol']})", expanded=True):
+                c1, c2 = st.columns([1, 4])
+                with c1:
+                    st.caption("Yapay Zeka Görüşü")
+                    st.markdown(f":{color}[{lbl}]")
+                    st.progress( (news['score'] + 1) / 2 ) # Map -1..1 to 0..1
+                with c2:
+                    st.write(f"**Etki Puanı:** {news['score']}")
+                    st.info(f"Haber saati: {datetime.fromtimestamp(news.get('timestamp', 0)).strftime('%H:%M')}")
     else:
-        st.warning(f"{symbol_to_track} için analiz verisi bulunamadı.")
+        st.info("Şu an için taranan varlıklarda güncel haber akışı bulunmuyor.")
 
 # --- 2. HİSSE TARAMA ---
 elif page == "Hisse Tarama":
