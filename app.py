@@ -197,6 +197,18 @@ def create_search_box(label, type="general", key=None):
     return selected
 
 # Kenar Çubuğu (Navigasyon)
+if st.session_state.get('logged_in'):
+    user_name = st.session_state.user_info.get('name') or st.session_state.user_info.get('email')
+    if st.session_state.get('guest_mode'):
+        user_name = "Misafir Kullanıcı"
+        
+    st.sidebar.caption(f"👤 {user_name}")
+    if st.sidebar.button("🚪 Çıkış Yap", key="logout_btn_top"):
+        st.session_state['logged_in'] = False
+        st.session_state['user_info'] = None
+        st.session_state['guest_mode'] = False
+        st.rerun()
+
 st.sidebar.title("Finans Botu 🤖")
 page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Portföyüm", "Portföy Dengeleyici", "Strateji Testi", "Raporlar"])
 
