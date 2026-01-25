@@ -7,3 +7,4 @@ borsapy
 pytz
 requests
 beautifulsoup4
+tefas-crawler
