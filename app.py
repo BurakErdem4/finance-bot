@@ -100,9 +100,33 @@ def format_price(val, currency="₺"):
     if isinstance(val, dict):
         val = val.get('last') or val.get('price', 0)
     try:
-        return f"{float(val):.2f} {currency}"
+        val_str = f"{float(val):,.2f}"
+        if currency == "$":
+            return f"${val_str}"
+        return f"{val_str} {currency}"
     except (ValueError, TypeError):
         return "---"
+
+# Helper for Autocomplete Search Box
+def create_search_box(label, type="general", key=None):
+    """
+    Creates a selectbox with a 'manual entry' fallback.
+    """
+    if type == "fund":
+        options = config.TEFAS_FUNDS
+    else:
+        options = config.ALL_SYMBOLS
+        
+    # Use selectbox with empty option
+    selected = st.selectbox(label, [""] + options, key=f"sel_{key}" if key else None)
+    
+    # Toggle for Manual Entry
+    manual_entry = st.checkbox("Listede yok mu? Manuel gir", key=f"chk_{key}" if key else None)
+    
+    if manual_entry:
+        return st.text_input(f"{label} (Manuel)", key=f"txt_{key}" if key else None).upper()
+    
+    return selected
 
 # Kenar Çubuğu (Navigasyon)
 st.sidebar.title("Finans Botu 🤖")
@@ -347,15 +371,14 @@ elif page == "Hisse Tarama":
 
 # --- 3. FON ANALİZİ ---
 elif page == "Fon Analizi":
-    st.title("📈 Fon Analizi")
-    
-    default_fund = config.SYMBOLS["funds"][0] if config.SYMBOLS["funds"] else "TCD"
-    fund_code = st.text_input("Fon Kodu Giriniz (Örn: TCD, AFT, IPV)", default_fund)
-    
-    if st.button("Analiz Et"):
+    st.title("TEFAS Fon Analizi")
+    fund_code = create_search_box("Fon Kodu (Örn: TCD, AFT)", type="fund", key="fund_sym")
+
+    if fund_code:
+        # TEFAS'tan veri çekme simülasyonu veya gerçek istek
         with st.spinner(f"{fund_code} verileri çekiliyor..."):
             data = get_fund_analysis(fund_code)
-            
+
         if data["error"]:
             st.error(f"Hata oluştu: {data['error']}")
         else:
@@ -363,17 +386,17 @@ elif page == "Fon Analizi":
             f_col1.metric("Fon Adı", data['info']['title'])
             f_col2.metric("Fiyat", format_price(data['info']['price']))
             f_col3.metric("Kategori", data['info']['category'])
-            
+
             st.subheader("Dönemsel Getiriler (%)")
             ret_df = pd.DataFrame([data['returns']])
             st.table(ret_df)
-            
+
             st.subheader("Varlık Dağılımı")
             alloc = data['allocation']
             if alloc is not None and not alloc.empty:
                 name_col = 'name' if 'name' in alloc.columns else 'asset_name'
                 val_col = 'value' if 'value' in alloc.columns else 'weight'
-                
+
                 if name_col in alloc.columns and val_col in alloc.columns:
                     fig = px.pie(alloc, values=val_col, names=name_col, title=f"{fund_code} Portföy Dağılımı")
                     fig.update_layout(template="plotly_dark")
@@ -387,11 +410,11 @@ elif page == "Fon Analizi":
 elif page == "Portföy Dengeleyici":
     st.title("⚖️ Portföy Dengeleyici (Smart Rebalance)")
     st.markdown("Yeni yatırımlarınızı hedef portföy yüzdelerinize göre otomatik olarak dağıtın.")
-    
+
     # 1. Mevcut Durumu Göster (GERÇEK VERİLERDEN)
     st.subheader("Mevcut Portföy Dağılımı (Gerçek)")
     real_portfolio = get_portfolio_by_category()
-    
+
     if not real_portfolio:
         st.warning("Henüz cüzdanınızda varlık bulunmuyor. Lütfen 'Cüzdanım' sayfasından işlem ekleyin veya hedef analizi için örnek verileri kontrol edin.")
         # Fallback to empty context or sample if requested
@@ -399,37 +422,37 @@ elif page == "Portföy Dengeleyici":
 
     current_df = pd.DataFrame(list(real_portfolio.items()), columns=["Kategori", "Mevcut Değer (TL)"])
     current_df["Hedef (%)"] = current_df["Kategori"].map(config.PORTFOLIO_TARGETS).fillna(0)
-    
+
     total_val = current_df["Mevcut Değer (TL)"].sum()
     if total_val > 0:
         current_df["Mevcut (%)"] = (current_df["Mevcut Değer (TL)"] / total_val * 100).round(2)
     else:
         current_df["Mevcut (%)"] = 0
-    
+
     st.table(current_df)
     st.write(f"**Toplam Portföy Değeri:** {total_val:,.2f} ₺")
-    
+
     st.markdown("---")
-    
+
     # 2. Yeni Yatırım Girişi
     new_investment = st.number_input("Yatırılacak Tutar (TL)", min_value=0, value=10000, step=1000)
-    
+
     if st.button("Hesapla"):
         suggestions = calculate_rebalance(
-            new_investment, 
-            real_portfolio, 
+            new_investment,
+            real_portfolio,
             config.PORTFOLIO_TARGETS
         )
-        
+
         st.success("✅ Dağıtım Önerisi Hazır")
-        
+
         s_df = pd.DataFrame(list(suggestions.items()), columns=["Kategori", "Alınacak Tutar (TL)"])
         fig = px.bar(s_df, x="Kategori", y="Alınacak Tutar (TL)", title="Yeni Yatırım Dağılımı")
         fig.update_layout(template="plotly_dark")
         st.plotly_chart(fig, use_container_width=True)
-        
+
         st.info(get_rebalance_summary(suggestions))
-        
+
         st.subheader("İşlem Detayları")
         st.table(s_df.style.format({"Alınacak Tutar (TL)": "{:,.2f}"}))
 
@@ -437,18 +460,18 @@ elif page == "Portföy Dengeleyici":
 elif page == "Strateji Testi":
     st.title("🧪 Strateji Testi (Backtest)")
     st.markdown("Geçmiş veriler üzerinde stratejilerinizi test edin ve performansını ölçün.")
-    
-    b_col1, b_col2, b_col3, b_col4 = st.columns(4)
-    
-    with b_col1:
-        backtest_symbol = st.text_input("Hisse/Fon Sembolü", "BTC-USD").upper()
-    with b_col2:
-        initial_cap = st.number_input("Başlangıç Sermayesi ($/TL)", value=1000, step=100)
-    with b_col3:
-        strategy_choice = st.selectbox("Strateji Seçimi", ['RSI Stratejisi (30/70)', 'SMA Cross (50/200)', 'Al ve Tut', 'Smart DCA', 'Normal DCA'])
-    with b_col4:
+
+    st.subheader("B. Geriye Dönük Test (Backtest)")
+    backtest_symbol = create_search_box("Test Edilecek Sembol", key="bt_sym")
+
+    if backtest_symbol:
+        col_b1, col_b2 = st.columns(2)
+        with col_b1:
+            initial_cap = st.number_input("Başlangıç Sermayesi ($/TL)", value=1000, step=100)
+        with col_b2:
+            strategy_choice = st.selectbox("Strateji Seçimi", ['RSI Stratejisi (30/70)', 'SMA Cross (50/200)', 'Al ve Tut', 'Smart DCA', 'Normal DCA'])
+
         is_periodic = st.toggle("Dönemsel (Yıllık) Test")
-        
     monthly_dca = 0
     if 'DCA' in strategy_choice:
         monthly_dca = st.number_input("Aylık Alım Tutarı", value=100, step=50)
@@ -627,9 +650,10 @@ elif page == "Cüzdanım":
         st.subheader("Endekslerle Performans Kıyaslaması (1 Yıl)")
         
         # Custom Competitor Input
-        custom_comp = st.text_input("VS Özel Rakip Ekle", placeholder="Örn: THYAO.IS, TSLA, BTC-USD")
+        custom_comp = create_search_box("VS Özel Rakip Ekle", key="bench_sym")
         
         if port_history is not None:
+
             with st.spinner("Benchmark verileri çekiliyor..."):
                 bench_df = get_benchmark_data(period="1y", custom_ticker=custom_comp if custom_comp else None)
                 
@@ -661,7 +685,7 @@ elif page == "Cüzdanım":
             col1, col2, col3 = st.columns(3)
             with col1:
                 t_date = st.date_input("İşlem Tarihi")
-                t_symbol = st.text_input("Hisse Sembolü", placeholder="THYAO").upper()
+                t_symbol = create_search_box("Hisse Sembolü", key="trans_sym")
             with col2:
                 t_type = st.selectbox("İşlem Türü", ["BUY", "SELL"])
                 t_qty = st.number_input("Adet", min_value=0.01, step=1.0)

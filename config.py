@@ -76,3 +76,29 @@ CURRENT_PORTFOLIO = {
     "Eurobond": 3000,
     "Emtia": 2000
 }
+# Otomatik Tamamlama (Autocomplete) Listeleri
+ALL_SYMBOLS = [
+    # BIST (Popüler)
+    "THYAO.IS", "ASELS.IS", "GARAN.IS", "EREGL.IS", "SASA.IS", "KCHOL.IS", "AKBNK.IS", "TUPRS.IS", "SISE.IS", "BIMAS.IS",
+    "FROTO.IS", "ISCTR.IS", "YKBNK.IS", "SAHOL.IS", "HEKTS.IS", "PETKM.IS", "TCELL.IS", "ARCLK.IS", "ENKAI.IS", "TOASO.IS",
+    "ASTOR.IS", "GUBRF.IS", "KONTR.IS", "MAVI.IS", "ALARK.IS", "PGSUS.IS", "TTKOM.IS", "SOKM.IS", "ODAS.IS", "TTRAK.IS",
+    "DOAS.IS", "VESTL.IS", "KOZAL.IS", "KOZAA.IS", "TKFEN.IS", "ULKER.IS", "EKGYO.IS", "DOHOL.IS", "BRSAN.IS", "OYAKC.IS",
+    "XU100.IS", "XU030.IS", "XBANK.IS",
+    
+    # ABD Borsaları
+    "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META", "NFLX", "AMD", "INTC", 
+    "QCOM", "CSCO", "PYPL", "ADBE", "BA", "DIS", "JPM", "V", "JNJ", "WMT",
+    "SPY", "QQQ", "DIA", "VTI", "VOO", "SCHD",
+    
+    # Kripto
+    "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "ADA-USD", "DOGE-USD", "AVAX-USD", "BNB-USD", "DOT-USD", "MATIC-USD",
+    
+    # Emtia & Döviz
+    "GC=F", "SI=F", "CL=F", "NG=F", # Altın, Gümüş, Petrol, Gaz
+    "TRY=X", "EURTRY=X", "EURUSD=X", "DX-Y.NYB" # Dolar/TL, Euro/TL, Parite, DXY
+]
+
+TEFAS_FUNDS = [
+    "TCD", "AFT", "YAS", "MAC", "IPB", "TI2", "AFA", "NNF", "HKH", "IPV", 
+    "KUB", "AES", "BIO", "GBC", "KTM", "TTE", "IDH", "OJT", "BUY", "GMR"
+]
