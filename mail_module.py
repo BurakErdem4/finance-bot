@@ -288,10 +288,13 @@ def generate_html(data, sentiments, report_type):
     """
     return html
 
-def send_daily_report(target_email=None, report_type="Günlük"):
+def send_newsletter(target_email=None, report_type="Günlük"):
     """
     Main function to fetch data, generate HTML and send email.
-    If target_email is None, it sends to ALL subscribers in subscribers.json.
+    If target_email is None, it sends to ALL subscribers in subscribers.json based on preferences.
+    If target_email is provided, it sends only to that email (Manual / Test mode).
+    
+    report_type values: "Günlük", "Haftalık"
     """
     try:
         # 1. Fetch Market Data
@@ -314,14 +317,35 @@ def send_daily_report(target_email=None, report_type="Günlük"):
         
         # 5. Determine Recipients
         recipients = []
+        
         if target_email:
+            # Single manual Send
             recipients = [target_email]
         else:
-            # Fetch from GitHub/Local file
-            recipients = subscription_module.get_subscribers()
+            # Broadcast to subscribers
+            all_subs = subscription_module.get_subscribers()
+            
+            # Filter based on Report Type
+            # "Günlük" -> check s['daily']
+            # "Haftalık" -> check s['weekly']
+            
+            for s in all_subs:
+                email = s.get('email')
+                if not email:
+                    continue
+                    
+                should_send = False
+                if report_type == "Günlük" and s.get('daily', False):
+                    should_send = True
+                elif report_type == "Haftalık" and s.get('weekly', False):
+                    should_send = True
+                # Fallback / manual logic could be added here
+                
+                if should_send:
+                    recipients.append(email)
             
         if not recipients:
-             return False, "Gönderilecek abone bulunamadı."
+             return False, "Bu rapor tipi için gönderilecek abone bulunamadı."
              
         # 6. Send Loop
         sent_count = 0
@@ -333,7 +357,7 @@ def send_daily_report(target_email=None, report_type="Günlük"):
             for email in recipients:
                 try:
                     message = MIMEMultipart("alternative")
-                    message["Subject"] = f"Finans Bülteni - {report_date}"
+                    message["Subject"] = f"Finans Bülteni ({report_type}) - {report_date}"
                     message["From"] = sender_email
                     message["To"] = email
                     

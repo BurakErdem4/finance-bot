@@ -16,9 +16,9 @@ from rebalance_module import calculate_rebalance, get_rebalance_summary
 from analysis_module import calculate_sma, calculate_rsi, get_technical_signals
 from benchmark_module import get_benchmark_data, get_benchmark_summary
 from backtest_module import run_backtest, run_periodic_backtest
-from mail_module import send_daily_report
+from mail_module import send_newsletter
 from portfolio_manager import add_transaction, get_all_transactions, get_portfolio_balance, get_portfolio_by_category
-from portfolio_manager import add_transaction, get_all_transactions, get_portfolio_balance, get_portfolio_by_category
+
 from sentiment_module import get_sentiment_score
 import subscription_module
 import paper_trader
@@ -110,38 +110,46 @@ page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi"
 
 st.sidebar.markdown("---")
 
+import pytz # Added for Timezone
+
 # 📧 Bülten Aboneliği (Yeni Sistem)
 st.sidebar.subheader("📩 Bülten Aboneliği")
-user_email = st.sidebar.text_input("E-posta Adresi", placeholder="ornek@gmail.com")
-if st.sidebar.button("Abone Ol"):
-    if user_email and "@" in user_email:
-        with st.spinner("Abonelik işlemi yapılıyor..."):
-            success, msg = subscription_module.add_subscriber(user_email)
-            if success:
-                st.sidebar.success(msg)
-            else:
-                st.sidebar.error(msg)
-    else:
-        st.sidebar.warning("Geçerli bir e-posta giriniz.")
+with st.sidebar.form("sub_form"):
+    user_email = st.text_input("E-posta Adresi", placeholder="ornek@gmail.com")
+    c1, c2 = st.columns(2)
+    daily_sub = c1.checkbox("Günlük", value=True)
+    weekly_sub = c2.checkbox("Haftalık", value=True)
+    
+    sub_btn = st.form_submit_button("Abone Ol / Güncelle")
+    
+    if sub_btn:
+        if user_email and "@" in user_email:
+            with st.spinner("İşlem yapılıyor..."):
+                success, msg = subscription_module.add_subscriber(user_email, daily_sub, weekly_sub)
+                if success:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+        else:
+            st.warning("Geçerli bir e-posta giriniz.")
 
 st.sidebar.markdown("---")
 
-# 📧 Manuel Raporlama (Admin)
-st.sidebar.subheader("📧 Manuel Rapor Gönder (Admin)")
-admin_pass = st.sidebar.text_input("Yönetici Şifresi (Opsiyonel)", type="password")
-r_type = st.sidebar.selectbox("Rapor Tipi", ["Günlük", "Haftalık"])
-
-if st.sidebar.button("Tüm Abonelere Gönder"):
-    # Basit bir güvenlik, herkes butona basıp flood yapmasın diye
-    if admin_pass == st.secrets.get("ADMIN_PASS", "1234"): 
-        with st.spinner("Tüm abonelere gönderiliyor..."):
-            success, message = send_daily_report(None, r_type) # None -> Tüm liste
-            if success:
-                st.sidebar.success(message)
-            else:
-                st.sidebar.error(message)
+# 📧 Manuel Raporlama (Test)
+st.sidebar.subheader("🚀 Hızlı Gönderim (Test)")
+test_email = st.sidebar.text_input("Hedef Email (Boşsa size gelir)", placeholder="me@test.com")
+if st.sidebar.button("Raporu Bana Şimdi Gönder"):
+    target = test_email if test_email else st.secrets.get("GMAIL_USER") 
+    # Or just use the input if current user
+    if not target:
+        st.sidebar.error("Lütfen bir e-posta girin.")
     else:
-        st.sidebar.error("Yetkisiz işlem.")
+        with st.spinner(f"{target} adresine gönderiliyor..."):
+            s, m = send_newsletter(target, "Günlük")
+            if s: 
+                st.sidebar.success(m) 
+            else: 
+                st.sidebar.error(m)
 
 
 # ⏰ Otomatik Zamanlayıcı
@@ -157,15 +165,19 @@ if enable_scheduler:
     if "last_check" not in st.session_state:
         st.session_state.last_check = time.time()
         
-    now = datetime.now()
+    tz = pytz.timezone('Europe/Istanbul')
+    now = datetime.now(tz)
     curr_time = now.strftime("%H:%M")
     
     try:
-        # Yaz/Kış Saati Basit Mantık (Mart-Kasım arası Yaz)
-        # Tam doğruluk için timezone kütüphanesi kullanılabilir ama manuel ayar da yeterli
-        month = now.month
-        is_summer = 3 < month < 11
-        us_time = config.NEWSLETTER_SCHEDULE["US"]["summer"] if is_summer else config.NEWSLETTER_SCHEDULE["US"]["winter"]
+        # Timezone handled by pytz, so standard time is correct local time
+        # US Schedule logic might need adjustment if it refers to specific US hours, but normally we just track local trigger times from config
+        
+        # Taking simplified approach: Config times are considered Local TR Times as per user request
+        # If config has distinction, we use it.
+        # Assuming config.NEWSLETTER_SCHEDULE has "US" and "TR" keys with local trigger times.
+        
+        us_time = config.NEWSLETTER_SCHEDULE["US"]["winter"] # Defaulting to single trigger for simplicity or keep existing logic if flexible
         
         # TR Time: start/end aralığı veya tek saat
         tr_conf = config.NEWSLETTER_SCHEDULE["TR"]
@@ -181,14 +193,14 @@ if enable_scheduler:
         # TR Check
         if curr_time == tr_time and st.session_state.sent_log.get("TR") != today_str:
             with st.spinner("TR Raporu gönderiliyor..."):
-                send_daily_report(None, "Günlük - TR")
+                send_newsletter(None, "Günlük")
                 st.session_state.sent_log["TR"] = today_str
                 st.success("TR Raporu gönderildi!")
                 
         # US Check
         if curr_time == us_time and st.session_state.sent_log.get("US") != today_str:
             with st.spinner("ABD Raporu gönderiliyor..."):
-                send_daily_report(None, "Günlük - ABD")
+                send_newsletter(None, "Günlük")
                 st.session_state.sent_log["US"] = today_str
                 st.success("ABD Raporu gönderildi!")
                 

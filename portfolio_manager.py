@@ -23,7 +23,7 @@ def get_all_transactions():
     conn.close()
     return df
 
-def get_real_time_price(symbol)
+def get_real_time_price(symbol):
     """
     Fetches real-time price using yfinance.
     Returns: (price_tl, conversion_rate)

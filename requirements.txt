@@ -1,8 +1,7 @@
 streamlit
-pandas
 yfinance
-borsapy
+pandas
 plotly
-
-textblob
 PyGithub
+borsapy
+pytz

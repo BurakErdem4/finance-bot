@@ -1,5 +1,9 @@
 {
-    "emails": [
-        "burakmuvafik@gmail.com"
+    "subscribers": [
+        {
+            "email": "burakmuvafik@gmail.com",
+            "daily": true,
+            "weekly": true
+        }
     ]
 }
