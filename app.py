@@ -375,9 +375,12 @@ elif page == "Hisse Tarama":
                 st.dataframe(
                     df_display.style.format({
                         "Fiyat": "{:.2f} ₺",
+                        "Günlük (%)": "{:+.2f}%",
                         "PD/DD": "{:.2f}",
                         "FD/FAVÖK": "{:.2f}"
-                    }, na_rep="-").background_gradient(subset=["PD/DD", "FD/FAVÖK"], cmap="RdYlGn_r", vmin=0, vmax=10), 
+                    }, na_rep="-")
+                    .background_gradient(subset=["PD/DD", "FD/FAVÖK"], cmap="RdYlGn_r", vmin=0, vmax=10)
+                    .map(lambda x: f"color: {'green' if x > 0 else 'red'}", subset=["Günlük (%)"]), 
                     use_container_width=True,
                     height=600
                 )

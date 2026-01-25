@@ -75,11 +75,13 @@ def fetch_etf_details_from_web(ticker):
         return None
 
 @st.cache_data(ttl=1800) 
+@st.cache_data(ttl=1800) 
 def fetch_bist_data():
     """
-    Fetches fundamental data for BIST 100 tickers and RANKS them (no filtering).
-    - Financials/Real Estate: Ranked by PD/DD (Low to High)
-    - Industrials/Others: Ranked by FD/FAVOK (Low to High)
+    Fetches data for BIST 100 tickers using a robust method:
+    1. Prices from History (Guaranteed even if market closed)
+    2. Fundamentals from Info (If missing, keep ticker)
+    3. Sorts by Valuation Score (primary) and Daily Change (secondary)
     """
     tickers = config.BIST_100_TICKERS
     data = []
@@ -87,51 +89,70 @@ def fetch_bist_data():
     for symbol in tickers:
         try:
             ticker = yf.Ticker(symbol)
-            info = ticker.info
             
-            # Key Data Points
+            # A. Robust Price Fetch (History)
+            # Fetch last 5 days to ensure we get a valid close even after weekends/holidays
+            hist = ticker.history(period="5d")
+            
+            if hist.empty:
+                # If history fails, completely skip (dead ticker?)
+                continue
+                
+            current_price = hist['Close'].iloc[-1]
+            
+            # Calculate Daily Change (%)
+            pct_change = 0
+            if len(hist) >= 2:
+                prev_close = hist['Close'].iloc[-2]
+                pct_change = ((current_price - prev_close) / prev_close) * 100
+            
+            # B. Fundamentals (Info) - Tolerant
+            info = ticker.info
             name = info.get('shortName', symbol)
             sector = info.get('sector', 'Unknown')
             
-            # Fundamentals
             pb = info.get('priceToBook') # PD/DD
             ev_ebitda = info.get('enterpriseToEbitda') # FD/FAVÖK
-            pe = info.get('trailingPE')
-            current_price = info.get('currentPrice')
             
-            # Scoring Logic
-            score = 9999 # Default High Score (Bad)
+            # C. Scoring Logic
+            # Goal: Rank by cheapness if possible. If not, fallback to neutral.
+            score = 100 # Default neutral/high score
             note = ""
             
             is_finance_re = sector in ['Financial Services', 'Real Estate']
             
+            has_fundamental_data = False
+            
             if is_finance_re:
-                # Banka/GYO: Score based on PD/DD
+                # Banka/GYO Rule: PD/DD
                 if pb is not None:
                     score = pb
+                    has_fundamental_data = True
                     if pb < 1.0:
-                        note = "🔥 sudan ucuz"
+                        note = "🔥 sudan ucuz (PD/DD)"
                     else:
-                        note = "Bankacılık/GYO"
-                else:
-                    note = "Veri Yok"
+                        note = "Sektör: Finans"
             else:
-                # Sanayi: Score based on FD/FAVÖK
-                if ev_ebitda is not None and ev_ebitda > 0:
-                    score = ev_ebitda
-                    if ev_ebitda < 5.0:
-                        note = "💎 Potansiyel Sanayi"
-                    else:
-                        note = "Sanayi Şirketi"
-                else:
-                    note = "Veri Yok"
+                # Industry Rule: FD/FAVÖK
+                if ev_ebitda is not None:
+                     score = ev_ebitda
+                     has_fundamental_data = True
+                     if ev_ebitda < 5.0 and ev_ebitda > 0:
+                         note = "💎 Potansiyel (FD/FAVÖK)"
+                     else:
+                        note = "Sektör: Sanayi/Hizmet"
             
-            # Append All (No Filtering)
+            # If no fundamental data, set score high so they appear at bottom (or sorted by return)
+            if not has_fundamental_data:
+                score = 999
+                note = "Veri Yok"
+
             data.append({
                 "Sembol": symbol,
                 "İsim": name,
                 "Sektör": sector,
                 "Fiyat": current_price,
+                "Günlük (%)": pct_change,
                 "PD/DD": pb if pb is not None else -1,
                 "FD/FAVÖK": ev_ebitda if ev_ebitda is not None else -1,
                 "Skor": score,
@@ -139,12 +160,17 @@ def fetch_bist_data():
             })
                 
         except Exception as e:
+            # print(f"Error {symbol}: {e}")
             continue
 
-    # Create DF and Sort by Score (Cheapest First)
+    # Create DF
     df = pd.DataFrame(data)
+    
     if not df.empty:
-        df = df.sort_values(by="Skor", ascending=True)
+        # Sort Logic:
+        # 1. By Score Ascending (Cheaper is better)
+        # 2. If Scores are high (999), Sort by Daily Return Descending (Show gainers)
+        df = df.sort_values(by=["Skor", "Günlük (%)"], ascending=[True, False])
         
     return df
 
