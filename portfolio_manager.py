@@ -164,3 +164,92 @@ def get_portfolio_by_category():
         category_totals[category] = category_totals.get(category, 0) + h['total_value_tl']
         
     return category_totals
+
+def get_benchmark_data(period="1y"):
+    """
+    Fetches historical data for benchmarks: BIST 100, USD/TRY, Gold (Gram/Ons), Bitcoin.
+    Returns DataFrame with normalized or raw prices.
+    """
+    benchmarks = {
+        "BIST 100": "XU100.IS",
+        "Dolar/TL": "TRY=X",
+        "Altın (Ons)": "GC=F",
+        "Bitcoin": "BTC-USD"
+    }
+    
+    df_list = []
+    
+    for name, sym in benchmarks.items():
+        try:
+            hist = yf.Ticker(sym).history(period=period)['Close']
+            # Adjust timezone
+            if hist.index.tz is not None:
+                hist.index = hist.index.tz_localize(None)
+            hist.name = name
+            df_list.append(hist)
+        except Exception as e:
+            print(f"Benchmark fetch error {name}: {e}")
+            
+    if df_list:
+        combined = pd.concat(df_list, axis=1)
+        combined = combined.ffill().dropna()
+        return combined
+    return pd.DataFrame()
+
+def get_portfolio_history(holdings, period="1y"):
+    """
+    Approximates portfolio history assuming current holdings were held constant over the period.
+    Returns: Series (Total Value in TL over time)
+    """
+    if not holdings:
+        return pd.Series()
+        
+    total_series = None
+    usd_rate_history = None
+    
+    # Pre-fetch USD history if needed for conversion
+    # We'll fetch it once to reuse
+    try:
+        usd_rate_history = yf.Ticker("TRY=X").history(period=period)['Close']
+        if usd_rate_history.index.tz is not None:
+            usd_rate_history.index = usd_rate_history.index.tz_localize(None)
+    except:
+        pass
+        
+    for h in holdings:
+        sym = h['symbol']
+        qty = h['quantity']
+        
+        # Determine ticker
+        ticker_sym = sym
+        if "." not in sym and "-" not in sym:
+             ticker_sym = sym + ".IS" # Fallback/Assumption
+        
+        try:
+            hist = yf.Ticker(ticker_sym).history(period=period)['Close']
+            if hist.empty: continue
+            
+            if hist.index.tz is not None:
+                hist.index = hist.index.tz_localize(None)
+                
+            # Currency Conversion
+            # Logic: If name ends with .IS, it is TL. Else USD.
+            # This is a simplification.
+            is_tl = ticker_sym.endswith(".IS")
+            
+            if not is_tl and usd_rate_history is not None:
+                # Align dates
+                aligned_usd = usd_rate_history.reindex(hist.index).ffill()
+                val_history = hist * qty * aligned_usd
+            else:
+                val_history = hist * qty
+                
+            if total_series is None:
+                total_series = val_history
+            else:
+                total_series = total_series.add(val_history, fill_value=0)
+                
+        except Exception as e:
+            print(f"History error {sym}: {e}")
+            
+    return total_series.dropna() if total_series is not None else pd.Series()
