@@ -87,8 +87,10 @@ def login_ui():
     with tab3:
         st.info("Üye olmadan sadece piyasa verilerini inceleyebilirsiniz. Portföy kaydetme özelliği kapalıdır.")
         if st.button("Misafir Olarak Devam Et"):
-            st.session_state.logged_in = True
-            st.session_state.guest_mode = True
+            st.session_state['logged_in'] = True
+            st.session_state['guest_mode'] = True
+            st.session_state['user_info'] = {'name': 'Misafir', 'email': 'guest'}
+            st.session_state['user_email'] = 'guest'
             st.rerun()
 
 # --- STRICT ACCESS CONTROL ---
