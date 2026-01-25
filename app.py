@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # Yerel Modüller
-from screener_module import find_cheap_industrial_stocks
+from screener_module import fetch_bist_data, fetch_us_etf_data
 from fund_module import get_fund_analysis
 from info_module import get_market_summary
 import config

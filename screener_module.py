@@ -1,62 +1,101 @@
 import streamlit as st
-import borsapy as bp
+import yfinance as yf
 import pandas as pd
+import config
 
-@st.cache_data(ttl=900)
-def find_cheap_industrial_stocks():
+@st.cache_data(ttl=1800) # Cache for 30 mins
+def fetch_bist_data():
     """
-    Finds industrial stocks with low P/E ratio and positive monthly return.
-    Criteria:
-    - Index: BIST Sınai (XUSIN)
-    - P/E (pe) < 10
-    - Monthly Return (return_1m) > 0
+    Fetches fundamental data for BIST 100 tickers and applies screening logic.
+    - Financials/Real Estate: PD/DD < 1.0
+    - Industrials/Others: FD/FAVOK (EV/EBITDA) < 5.0
     """
-    print(">>> Hisse Tarama Başlatılıyor (Kriter: Sınai [XUSIN], F/K < 10, Aylık Getiri > %0)...")
+    tickers = config.BIST_100_TICKERS
+    data = []
     
-    try:
-        # 1. Endeks Bileşenlerini Al (Client-side filtreleme için)
-        # API filtrelemesi bazen sorun çıkarabildiği için (SSL/Character issues),
-        # önce geniş tarama yapıp sonra biz filtreliyoruz.
+    # Progress bar simulation logic on frontend usually, but here we scan
+    
+    for symbol in tickers:
         try:
-            ind_index = bp.Index("XUSIN")
-            industrial_symbols = set(ind_index.component_symbols)
-            # print(f"Sınai Endeksi (XUSIN) içinde {len(industrial_symbols)} hisse var.")
-        except Exception as e:
-            print(f"Endeks bileşenleri alınamadı: {e}")
-            return None
-
-        # 2. Genel Tarama Yap (Sektör/Endeks filtresi olmadan)
-        screener = bp.Screener()
-        screener.add_filter("pe", max=10)
-        screener.add_filter("return_1m", min=0)
-        
-        # Diğer potansiyel kriterler eklenebilir
-        # screener.add_filter("market_cap", min=1000) # Min 1 milyar TL gibi
-        
-        results = screener.run()
-        
-        if results is None or results.empty:
-            print("Kriterlere uygun hisse bulunamadı.")
-            return None
-
-        # 3. Sonuçları Endekse Göre Filtrele
-        # results dataframe'inde 'symbol' kolonu hisse kodlarını içerir.
-        final_results = results[results['symbol'].isin(industrial_symbols)]
-        
-        if final_results.empty:
-             print("Sınai endeksinde bu kriterlere uyan hisse bulunamadı.")
-             return None
+            ticker = yf.Ticker(symbol)
+            info = ticker.info
             
-        # Sonuçları F/K'ya (criteria_23 = P/E usually, but let's assume 'pe' or mapped)
-        # borsapy sonuçları bazen criteria_ID şeklinde döner. 
-        # Ancak debug çıktısında gördük ki 'symbol' ve 'name' var.
-        # F/K sütununu bulup ona göre sıralamak daha şık olurdu ama şimdilik varsayılan sıralama kalsın.
-        
-        print(f"\nBulunan Hisse Sayısı: {len(final_results)}")
-        print(final_results.head(10)) 
-        
-        return final_results
+            # Key Data Points
+            name = info.get('shortName', symbol)
+            sector = info.get('sector', 'Unknown')
+            industry = info.get('industry', 'Unknown')
+            
+            # Fundamentals
+            pb = info.get('priceToBook') # PD/DD
+            ev_ebitda = info.get('enterpriseToEbitda') # FD/FAVÖK
+            pe = info.get('trailingPE')
+            rec_key = info.get('recommendationKey', 'none').lower()
+            
+            current_price = info.get('currentPrice')
+            
+            # Screening Logic
+            passed = False
+            reason = ""
+            
+            is_finance_re = sector in ['Financial Services', 'Real Estate']
+            
+            if is_finance_re:
+                # Banka/GYO Kriteri: PD/DD < 1.0
+                if pb is not None and pb < 1.0:
+                    passed = True
+                    reason = f"PD/DD: {pb:.2f} < 1.0"
+            else:
+                # Sanayi Kriteri: FD/FAVOK < 5.0
+                if ev_ebitda is not None and ev_ebitda < 5.0 and ev_ebitda > 0:
+                     passed = True
+                     reason = f"FD/FAVÖK: {ev_ebitda:.2f} < 5.0"
+            
+            # Optional: Add regardless if 'buy' recommendation?
+            # User said: If recommendationKey == 'buy', prioritize.
+            # But primarily filter by fundamentals.
+            # Let's include everything but mark 'passed' ones, OR only return passed ones.
+            # "fetch_bist_data... Sonuçları bir DataFrame olarak döndür." implies screening result.
+            
+            if passed:
+                data.append({
+                    "Sembol": symbol,
+                    "İsim": name,
+                    "Sektör": sector,
+                    "Fiyat": current_price,
+                    "PD/DD": pb,
+                    "FD/FAVÖK": ev_ebitda,
+                    "Öneri": rec_key,
+                    "Kriter": reason
+                })
+                
+        except Exception as e:
+            # print(f"Error fetching {symbol}: {e}")
+            continue
+            
+    return pd.DataFrame(data)
 
-    except Exception as e:
-        print(f"Hata (Screener): {e}")
-        return None
+@st.cache_data(ttl=3600)
+def fetch_us_etf_data():
+    """
+    Fetches US ETF data: Returns, Expense Ratio, PE.
+    """
+    tickers = config.US_ETFS
+    data = []
+    
+    for symbol in tickers:
+        try:
+            t = yf.Ticker(symbol)
+            info = t.info
+            
+            data.append({
+                "Sembol": symbol,
+                "İsim": info.get('shortName', symbol),
+                "YTD Getiri (%)": info.get('ytdReturn', 0) * 100 if info.get('ytdReturn') else 0,
+                "Masraf (%)": info.get('annualReportExpenseRatio', 0) * 100 if info.get('annualReportExpenseRatio') else 0,
+                "PE (F/K)": info.get('trailingPE', 0),
+                "Fiyat ($)": info.get('currentPrice', 0)
+            })
+        except:
+            continue
+            
+    return pd.DataFrame(data)

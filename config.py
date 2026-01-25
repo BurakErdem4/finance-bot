@@ -102,3 +102,23 @@ TEFAS_FUNDS = [
     "TCD", "AFT", "YAS", "MAC", "IPB", "TI2", "AFA", "NNF", "HKH", "IPV", 
     "KUB", "AES", "BIO", "GBC", "KTM", "TTE", "IDH", "OJT", "BUY", "GMR"
 ]
+
+BIST_100_TICKERS = [
+    # Top 30-40 BIST Companies for Screener
+    "THYAO.IS", "ASELS.IS", "GARAN.IS", "EREGL.IS", "SASA.IS", "KCHOL.IS", "AKBNK.IS", "TUPRS.IS", "SISE.IS", "BIMAS.IS",
+    "FROTO.IS", "ISCTR.IS", "YKBNK.IS", "SAHOL.IS", "HEKTS.IS", "PETKM.IS", "TCELL.IS", "ARCLK.IS", "ENKAI.IS", "TOASO.IS",
+    "ASTOR.IS", "GUBRF.IS", "KONTR.IS", "MAVI.IS", "ALARK.IS", "PGSUS.IS", "TTKOM.IS", "SOKM.IS", "ODAS.IS", "TTRAK.IS",
+    "DOAS.IS", "VESTL.IS", "KOZAL.IS", "KOZAA.IS", "TKFEN.IS", "ULKER.IS", "EKGYO.IS", "DOHOL.IS", "OYAKC.IS", "AEFES.IS"
+]
+
+US_ETFS = [
+    # US ETF Opportunities
+    "SPY", "QQQ", "VTI", "VOO", # General Market
+    "GLD", "SLV", # Commodities
+    "ARKK", # Innovation
+    "XLF", # Finance
+    "XLE", # Energy
+    "XLK", # Tech
+    "SMH", # Semi
+    "SCHD" # Dividend
+]
