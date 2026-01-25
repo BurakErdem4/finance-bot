@@ -625,9 +625,13 @@ elif page == "Cüzdanım":
     
     with tab2:
         st.subheader("Endekslerle Performans Kıyaslaması (1 Yıl)")
+        
+        # Custom Competitor Input
+        custom_comp = st.text_input("VS Özel Rakip Ekle", placeholder="Örn: THYAO.IS, TSLA, BTC-USD")
+        
         if port_history is not None:
             with st.spinner("Benchmark verileri çekiliyor..."):
-                bench_df = get_benchmark_data(period="1y")
+                bench_df = get_benchmark_data(period="1y", custom_ticker=custom_comp if custom_comp else None)
                 
             if not bench_df.empty:
                 # Merge Portfolio History

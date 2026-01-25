@@ -165,9 +165,10 @@ def get_portfolio_by_category():
         
     return category_totals
 
-def get_benchmark_data(period="1y"):
+def get_benchmark_data(period="1y", custom_ticker=None):
     """
     Fetches historical data for benchmarks: BIST 100, USD/TRY, Gold (Gram/Ons), Bitcoin.
+    Also fetches custom_ticker if provided.
     Returns DataFrame with normalized or raw prices.
     """
     benchmarks = {
@@ -177,18 +178,26 @@ def get_benchmark_data(period="1y"):
         "Bitcoin": "BTC-USD"
     }
     
+    if custom_ticker:
+        # Use the ticker itself as the label for simplicity, uppercase for consistency
+        benchmarks[f"Rakip: {custom_ticker.upper()}"] = custom_ticker.upper()
+    
     df_list = []
     
     for name, sym in benchmarks.items():
         try:
             hist = yf.Ticker(sym).history(period=period)['Close']
+            if hist.empty:
+                print(f"Benchmark warning: No data for {sym}")
+                continue
+                
             # Adjust timezone
             if hist.index.tz is not None:
                 hist.index = hist.index.tz_localize(None)
             hist.name = name
             df_list.append(hist)
         except Exception as e:
-            print(f"Benchmark fetch error {name}: {e}")
+            print(f"Benchmark fetch error {name} ({sym}): {e}")
             
     if df_list:
         combined = pd.concat(df_list, axis=1)
