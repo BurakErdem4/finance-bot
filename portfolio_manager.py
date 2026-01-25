@@ -5,21 +5,27 @@ import config
 
 DB_PATH = "finance.db"
 
-def add_transaction(date, symbol, trans_type, quantity, price):
-    """Adds a new transaction to the database."""
+def add_transaction(date, symbol, trans_type, quantity, price, user_email):
+    """Adds a new transaction to the database for a specific user."""
+    if not user_email or user_email == "guest":
+        return # Block guests or invalid
+        
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO transactions (date, symbol, type, quantity, price)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (date, symbol.upper(), trans_type, quantity, price))
+        INSERT INTO transactions (date, user_email, symbol, type, quantity, price)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (date, user_email, symbol.upper(), trans_type, quantity, price))
     conn.commit()
     conn.close()
 
-def get_all_transactions():
-    """Returns all transactions as a DataFrame."""
+def get_all_transactions(user_email):
+    """Returns all transactions for a specific user as a DataFrame."""
+    if not user_email or user_email == "guest":
+        return pd.DataFrame()
+        
     conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM transactions ORDER BY date DESC", conn)
+    df = pd.read_sql_query("SELECT * FROM transactions WHERE user_email = ? ORDER BY date DESC", conn, params=(user_email,))
     conn.close()
     return df
 
@@ -27,12 +33,6 @@ def get_real_time_price(symbol):
     """
     Fetches real-time price using yfinance.
     Returns: (price_tl, conversion_rate)
-    
-    Logic:
-    1. Get USD/TRY rate.
-    2. Try fetching symbol (if plain, try adding .IS regarding smart logic).
-    3. If ends with .IS -> Price is TL (rate=1).
-    4. If Foreign -> Price is USD (rate=USDTRY).
     """
     try:
         # 1. Get USD/TRY Rate
@@ -46,13 +46,8 @@ def get_real_time_price(symbol):
             usd_try = 35.0
 
         # 2. Smart Fetch Logic
-        # Try as is first
         candidates = [symbol]
         if "." not in symbol and "-" not in symbol:
-             # Common input error: User types "THYAO" for BIST
-             # But checks checking pure "THYAO" might return nothing or wrong ticker
-             # We prioritize .IS for pure strings if they look like BIST? 
-             # Or just try .IS as secondary.
              candidates.append(symbol + ".IS")
              
         ticker = None
@@ -84,12 +79,11 @@ def get_real_time_price(symbol):
         print(f"Price fetch error for {symbol}: {e}")
         return None, 1.0
 
-def get_portfolio_balance():
+def get_portfolio_balance(user_email):
     """
-    Calculates current holdings, average costs, and current market values with currency conversion.
-    Returns: List of dicts enriched with current prices in TL and P/L metrics.
+    Calculates current holdings for a specific user.
     """
-    df = get_all_transactions()
+    df = get_all_transactions(user_email)
     if df.empty:
         return []
 
@@ -150,12 +144,11 @@ def get_portfolio_balance():
 
     return summary
 
-def get_portfolio_by_category():
+def get_portfolio_by_category(user_email):
     """
-    Groups current holdings by category defined in config.SYMBOL_CATEGORIES.
-    Returns: Dict {'Category': current_market_value}
+    Groups current holdings by category for a specific user.
     """
-    holdings = get_portfolio_balance()
+    holdings = get_portfolio_balance(user_email)
     category_totals = {}
     
     for h in holdings:

@@ -688,180 +688,186 @@ elif page == "Portföyüm":
         st.error("Bu sayfaya erişim yetkiniz yok.")
     else:
         st.title("📱 Portföyüm")
-    
-    # Fetch Data
-    with st.spinner("Portföy verileri hazırlanıyor..."):
-        holdings = get_portfolio_balance()
         
-        # Calculate Total Values
-        total_tl = sum([h['total_value_tl'] for h in holdings]) if holdings else 0
-        
-        # USD Conversion (Simple)
-        usd_rate = 35.0
-        try:
-            usd_rate = market_data['usd'] # Re-use if fetched, else fetch
-        except:
-            pass
-        total_usd = total_tl / usd_rate
-        
-        # Historical Data for Chart
-        from portfolio_manager import get_benchmark_data, get_portfolio_history
-        port_history = get_portfolio_history(holdings, period="1y") if holdings else None
-        
-    # --- KATMAN 1: Özet ve Görselleştirme ---
+        # Get Current User Email
+        user_email = st.session_state.user_info.get('email') if st.session_state.user_info else "guest"
     
-    # 1. Total Metrics (Big)
-    row1_col1, row1_col2 = st.columns(2)
-    with row1_col1:
-         st.markdown(f"""
-         <div style="text-align: center;">
-             <p style="margin:0; color:#888; font-size: 14px;">Toplam Varlık (TL)</p>
-             <h1 style="margin:0; font-size: 36px; color: #4CAF50;">₺{total_tl:,.2f}</h1>
-         </div>
-         """, unsafe_allow_html=True)
-         
-    with row1_col2:
-        st.markdown(f"""
-         <div style="text-align: center;">
-             <p style="margin:0; color:#888; font-size: 14px;">Toplam Varlık (USD)</p>
-             <h1 style="margin:0; font-size: 36px; color: #2196F3;">${total_usd:,.2f}</h1>
-         </div>
-         """, unsafe_allow_html=True)
-    
-    st.write("")
-    
-    # 2. Charts (Line + Donut)
-    c_chart1, c_chart2 = st.columns([2, 1])
-    
-    with c_chart1:
-        if port_history is not None and not port_history.empty:
-            fig_l = px.area(port_history, title="Portföy Değişim Grafiği (TL)", labels={"value": "Değer", "index": "Tarih"})
-            fig_l.update_layout(template="plotly_dark", height=300, showlegend=False, margin=dict(l=0, r=0, t=30, b=0))
-            st.plotly_chart(fig_l, use_container_width=True)
-        else:
-            st.info("Grafik için yeterli veri yok.")
+        # Fetch Data
+        with st.spinner("Portföy verileri hazırlanıyor..."):
+            holdings = get_portfolio_balance(user_email)
             
-    with c_chart2:
-        if holdings:
-            df_h = pd.DataFrame(holdings)
-            fig_d = px.pie(df_h, values='total_value_tl', names='symbol', hole=0.4, title="Dağılım")
-            fig_d.update_layout(template="plotly_dark", height=300, showlegend=False, margin=dict(l=0, r=0, t=30, b=0))
-            st.plotly_chart(fig_d, use_container_width=True)
-
-    st.markdown("---")
-    
-    # --- KATMAN 2: Varlık Listesi (Kart Görünümü) ---
-    st.subheader("📋 Varlıklarınız")
-    
-    if holdings:
-        for h in holdings:
-            # Color for P/L
-            pl_color = "#4CAF50" if h['profit_tl'] >= 0 else "#FF5252"
+            # Calculate Total Values
+            total_tl = sum([h['total_value_tl'] for h in holdings]) if holdings else 0
             
-            with st.container():
-                # Card-like layout
-                cc1, cc2, cc3, cc4, cc5 = st.columns([1, 1, 1, 1, 1])
-                
-                cc1.markdown(f"**{h['symbol']}**")
-                cc2.caption("Fiyat")
-                cc2.write(f"{h['current_price_tl']:.2f}")
-                
-                cc3.caption("Adet")
-                cc3.write(f"{h['quantity']}")
-                
-                cc4.caption("Değer")
-                cc4.write(f"{h['total_value_tl']:,.0f}")
-                
-                cc5.caption("K/Z")
-                cc5.markdown(f"<span style='color:{pl_color}; font-weight:bold;'>{h['profit_tl']:,.0f} ({h['profit_pct']:.1f}%)</span>", unsafe_allow_html=True)
-                
-                st.markdown("<hr style='margin:5px 0; opacity:0.2;'>", unsafe_allow_html=True)
-    else:
-        st.info("Portföyünüz boş.")
-
-    st.markdown("---")
-
-    # --- KATMAN 3: Sekmeli Analiz ---
-    tab1, tab2, tab3 = st.tabs(["📊 Detaylı Analiz", "📈 Kıyaslama", "➕ İşlemler"])
-    
-    with tab1:
-        if holdings:
-            st.caption("Detaylı Portföy Tablosu")
-            # Create Detailed DF
-            detailed_data = []
-            for h in holdings:
-                weight = (h['total_value_tl'] / total_tl) * 100 if total_tl > 0 else 0
-                detailed_data.append({
-                    "Varlık": h['symbol'],
-                    "Ağırlık (%)": f"%{weight:.1f}",
-                    "Ort. Maliyet": f"{h['avg_cost']:.2f}",
-                    "Güncel Fiyat": f"{h['current_price_tl']:.2f}",
-                    "Toplam Değer": f"{h['total_value_tl']:,.2f}",
-                    "Kar/Zarar": f"{h['profit_tl']:,.2f}"
-                })
-            st.dataframe(pd.DataFrame(detailed_data), use_container_width=True)
-    
-    with tab2:
-        st.subheader("Endekslerle Performans Kıyaslaması (1 Yıl)")
+            # USD Conversion (Simple)
+            usd_rate = 35.0
+            try:
+                # Assuming market_data might be available globally or re-fetch
+                usd_curr = yf.Ticker("TRY=X").history(period="1d")
+                if not usd_curr.empty:
+                    usd_rate = usd_curr['Close'].iloc[-1]
+            except:
+                pass
+            total_usd = total_tl / usd_rate
+            
+            # Historical Data for Chart
+            from portfolio_manager import get_benchmark_data, get_portfolio_history
+            port_history = get_portfolio_history(holdings, period="1y") if holdings else None
+            
+        # --- KATMAN 1: Özet ve Görselleştirme ---
         
-        # Custom Competitor Input
-        custom_comp = create_search_box("VS Özel Rakip Ekle", key="bench_sym")
+        # 1. Total Metrics (Big)
+        row1_col1, row1_col2 = st.columns(2)
+        with row1_col1:
+             st.markdown(f"""
+             <div style="text-align: center;">
+                 <p style="margin:0; color:#888; font-size: 14px;">Toplam Varlık (TL)</p>
+                 <h1 style="margin:0; font-size: 36px; color: #4CAF50;">₺{total_tl:,.2f}</h1>
+             </div>
+             """, unsafe_allow_html=True)
+             
+        with row1_col2:
+            st.markdown(f"""
+             <div style="text-align: center;">
+                 <p style="margin:0; color:#888; font-size: 14px;">Toplam Varlık (USD)</p>
+                 <h1 style="margin:0; font-size: 36px; color: #2196F3;">${total_usd:,.2f}</h1>
+             </div>
+             """, unsafe_allow_html=True)
         
-        if port_history is not None:
-
-            with st.spinner("Benchmark verileri çekiliyor..."):
-                bench_df = get_benchmark_data(period="1y", custom_ticker=custom_comp if custom_comp else None)
-                
-            if not bench_df.empty:
-                # Merge Portfolio History
-                # Normalize all to start at 0%
-                
-                merged = bench_df.copy()
-                merged["Portföyüm"] = port_history
-                
-                # Align dates (intersection)
-                merged = merged.ffill().dropna()
-                
-                if not merged.empty:
-                    # Normalize: (Price / StartPrice - 1) * 100
-                    norm_df = merged.apply(lambda x: ((x / x.iloc[0]) - 1) * 100)
-                    
-                    fig_bm = px.line(norm_df, title="Getiri Karşılaştırması (%)")
-                    fig_bm.update_layout(template="plotly_dark", height=400)
-                    st.plotly_chart(fig_bm, use_container_width=True)
-                else:
-                    st.warning("Tarih eşleşmesi yapılamadı.")
+        st.write("")
+        
+        # 2. Charts (Line + Donut)
+        c_chart1, c_chart2 = st.columns([2, 1])
+        
+        with c_chart1:
+            if port_history is not None and not port_history.empty:
+                fig_l = px.area(port_history, title="Portföy Değişim Grafiği (TL)", labels={"value": "Değer", "index": "Tarih"})
+                fig_l.update_layout(template="plotly_dark", height=300, showlegend=False, margin=dict(l=0, r=0, t=30, b=0))
+                st.plotly_chart(fig_l, use_container_width=True)
             else:
-                st.warning("Benchmark verisi alınamadı.")
-    
-    with tab3:
-        st.subheader("İşlem Ekle / Çıkar")
-        with st.form("transaction_form_new", clear_on_submit=True):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                t_date = st.date_input("İşlem Tarihi")
-                t_symbol = create_search_box("Hisse Sembolü", key="trans_sym")
-            with col2:
-                t_type = st.selectbox("İşlem Türü", ["BUY", "SELL"])
-                t_qty = st.number_input("Adet", min_value=0.01, step=1.0)
-            with col3:
-                t_price = st.number_input("Fiyat", min_value=0.01, step=0.1)
-                submitted = st.form_submit_button("💾 Kaydet")
+                st.info("Grafik için yeterli veri yok.")
                 
-            if submitted:
-                 if t_symbol:
-                    add_transaction(t_date.strftime("%Y-%m-%d"), t_symbol, t_type, t_qty, t_price)
-                    st.success("İşlem kaydedildi! Veriler güncelleniyor...")
-                    time.sleep(1)
-                    st.rerun()
-                 else:
-                    st.error("Sembol giriniz.")
+        with c_chart2:
+            if holdings:
+                df_h = pd.DataFrame(holdings)
+                fig_d = px.pie(df_h, values='total_value_tl', names='symbol', hole=0.4, title="Dağılım")
+                fig_d.update_layout(template="plotly_dark", height=300, showlegend=False, margin=dict(l=0, r=0, t=30, b=0))
+                st.plotly_chart(fig_d, use_container_width=True)
+    
+        st.markdown("---")
         
-        # History Table
-        st.subheader("Geçmiş İşlemler")
-        history = get_all_transactions()
-        if not history.empty:
-            st.dataframe(history.drop(columns=['id']), use_container_width=True, height=200)
+        # --- KATMAN 2: Varlık Listesi (Kart Görünümü) ---
+        st.subheader("📋 Varlıklarınız")
+        
+        if holdings:
+            for h in holdings:
+                # Color for P/L
+                pl_color = "#4CAF50" if h['profit_tl'] >= 0 else "#FF5252"
+                
+                with st.container():
+                    # Card-like layout
+                    cc1, cc2, cc3, cc4, cc5 = st.columns([1, 1, 1, 1, 1])
+                    
+                    cc1.markdown(f"**{h['symbol']}**")
+                    cc2.caption("Fiyat")
+                    cc2.write(f"{h['current_price_tl']:.2f}")
+                    
+                    cc3.caption("Adet")
+                    cc3.write(f"{h['quantity']}")
+                    
+                    cc4.caption("Değer")
+                    cc4.write(f"{h['total_value_tl']:,.0f}")
+                    
+                    cc5.caption("K/Z")
+                    cc5.markdown(f"<span style='color:{pl_color}; font-weight:bold;'>{h['profit_tl']:,.0f} ({h['profit_pct']:.1f}%)</span>", unsafe_allow_html=True)
+                    
+                    st.markdown("<hr style='margin:5px 0; opacity:0.2;'>", unsafe_allow_html=True)
+        else:
+            st.info("Portföyünüz boş.")
+    
+        st.markdown("---")
+    
+        # --- KATMAN 3: Sekmeli Analiz ---
+        tab1, tab2, tab3 = st.tabs(["📊 Detaylı Analiz", "📈 Kıyaslama", "➕ İşlemler"])
+        
+        with tab1:
+            if holdings:
+                st.caption("Detaylı Portföy Tablosu")
+                # Create Detailed DF
+                detailed_data = []
+                for h in holdings:
+                    weight = (h['total_value_tl'] / total_tl) * 100 if total_tl > 0 else 0
+                    detailed_data.append({
+                        "Varlık": h['symbol'],
+                        "Ağırlık (%)": f"%{weight:.1f}",
+                        "Ort. Maliyet": f"{h['avg_cost']:.2f}",
+                        "Güncel Fiyat": f"{h['current_price_tl']:.2f}",
+                        "Toplam Değer": f"{h['total_value_tl']:,.2f}",
+                        "Kar/Zarar": f"{h['profit_tl']:,.2f}"
+                    })
+                st.dataframe(pd.DataFrame(detailed_data), use_container_width=True)
+        
+        with tab2:
+            st.subheader("Endekslerle Performans Kıyaslaması (1 Yıl)")
+            
+            # Custom Competitor Input
+            custom_comp = create_search_box("VS Özel Rakip Ekle", key="bench_sym")
+            
+            if port_history is not None:
+    
+                with st.spinner("Benchmark verileri çekiliyor..."):
+                    bench_df = get_benchmark_data(period="1y", custom_ticker=custom_comp if custom_comp else None)
+                    
+                if not bench_df.empty:
+                    # Merge Portfolio History
+                    # Normalize all to start at 0%
+                    
+                    merged = bench_df.copy()
+                    merged["Portföyüm"] = port_history
+                    
+                    # Align dates (intersection)
+                    merged = merged.ffill().dropna()
+                    
+                    if not merged.empty:
+                        # Normalize: (Price / StartPrice - 1) * 100
+                        norm_df = merged.apply(lambda x: ((x / x.iloc[0]) - 1) * 100)
+                        
+                        fig_bm = px.line(norm_df, title="Getiri Karşılaştırması (%)")
+                        fig_bm.update_layout(template="plotly_dark", height=400)
+                        st.plotly_chart(fig_bm, use_container_width=True)
+                    else:
+                        st.warning("Tarih eşleşmesi yapılamadı.")
+                else:
+                    st.warning("Benchmark verisi alınamadı.")
+        
+        with tab3:
+            st.subheader("İşlem Ekle / Çıkar")
+            with st.form("transaction_form_new", clear_on_submit=True):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    t_date = st.date_input("İşlem Tarihi")
+                    t_symbol = create_search_box("Hisse Sembolü", key="trans_sym")
+                with col2:
+                    t_type = st.selectbox("İşlem Türü", ["BUY", "SELL"])
+                    t_qty = st.number_input("Adet", min_value=0.01, step=1.0)
+                with col3:
+                    t_price = st.number_input("Fiyat", min_value=0.01, step=0.1)
+                    submitted = st.form_submit_button("💾 Kaydet")
+                    
+                if submitted:
+                     if t_symbol:
+                        add_transaction(t_date.strftime("%Y-%m-%d"), t_symbol, t_type, t_qty, t_price, user_email)
+                        st.success("İşlem kaydedildi! Veriler güncelleniyor...")
+                        time.sleep(1)
+                        st.rerun()
+                     else:
+                        st.error("Sembol giriniz.")
+            
+            # History Table
+            st.subheader("Geçmiş İşlemler")
+            history = get_all_transactions(user_email)
+            if not history.empty:
+                st.dataframe(history.drop(columns=['id', 'user_email'], errors='ignore'), use_container_width=True, height=200)
 
 # --- 7. GÖLGE PORTFÖY (KALDIRILDI) ---
 # elif page == "👻 Gölge Portföy":

@@ -20,16 +20,25 @@ def init_db():
         )
     ''')
     
+    # Transactions tablosu (Updated with user_email)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL,
+            user_email TEXT,
             symbol TEXT NOT NULL,
             type TEXT NOT NULL,
             quantity REAL NOT NULL,
             price REAL NOT NULL
         )
     ''')
+    
+    # MIGRATION CHECK: Add user_email if missing
+    try:
+        cursor.execute("SELECT user_email FROM transactions LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating database: Adding user_email to transactions...")
+        cursor.execute("ALTER TABLE transactions ADD COLUMN user_email TEXT")
     
     # Gölge Portföy (Paper Trading) Tablosu
     cursor.execute('''
