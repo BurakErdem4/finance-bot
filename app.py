@@ -243,10 +243,24 @@ st.sidebar.markdown("---")
 
 # 📧 Manuel Raporlama (Test)
 st.sidebar.subheader("🚀 Hızlı Gönderim (Test)")
-test_email = st.sidebar.text_input("Hedef Email (Boşsa size gelir)", placeholder="me@test.com")
+
+# Determine current user for hint
+current_user = st.session_state.get('user_email')
+is_guest = st.session_state.get('guest_mode', False)
+hint_text = "me@test.com"
+if current_user and not is_guest:
+    hint_text = f"Boş bırakırsanız: {current_user}"
+
+test_email = st.sidebar.text_input("Hedef Email", placeholder=hint_text, help=f"Kayıtlı adresiniz: {current_user}" if not is_guest else "Misafirler manuel giriş yapmalıdır.")
+
 if st.sidebar.button("Raporu Bana Şimdi Gönder"):
-    target = test_email if test_email else st.secrets.get("GMAIL_USER") 
-    # Or just use the input if current user
+    target = None
+    
+    if test_email:
+        target = test_email
+    elif current_user and not is_guest:
+        target = current_user
+        
     if not target:
         st.sidebar.error("Lütfen bir e-posta girin.")
     else:
