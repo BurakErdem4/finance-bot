@@ -245,24 +245,41 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🚀 Hızlı Gönderim (Test)")
 
 # Determine current user for hint
-current_user = st.session_state.get('user_email')
+user_info = st.session_state.get('user_info', {})
+# Support both direct key or nested dict
+if isinstance(user_info, dict):
+    current_user = st.session_state.get('user_email') or user_info.get('email')
+else:
+    current_user = st.session_state.get('user_email')
+    
 is_guest = st.session_state.get('guest_mode', False)
+
 hint_text = "me@test.com"
 if current_user and not is_guest:
     hint_text = f"Boş bırakırsanız: {current_user}"
 
-test_email = st.sidebar.text_input("Hedef Email", placeholder=hint_text, help=f"Kayıtlı adresiniz: {current_user}" if not is_guest else "Misafirler manuel giriş yapmalıdır.")
+test_email = st.sidebar.text_input("Hedef Email", placeholder=hint_text, help=f"Kayıtlı adresiniz: {current_user}" if (current_user and not is_guest) else "Misafirler manuel giriş yapmalıdır.")
 
 if st.sidebar.button("Raporu Bana Şimdi Gönder"):
     target = None
     
+    # 1. Check Input
     if test_email:
         target = test_email
+    # 2. Smart Default
     elif current_user and not is_guest:
         target = current_user
         
+    # 3. Error Control
     if not target:
-        st.sidebar.error("Lütfen bir e-posta girin.")
+        st.sidebar.error("Lütfen geçerli bir e-posta adresi girin.")
+    else:
+        with st.spinner(f"{target} adresine gönderiliyor..."):
+            s, m = send_newsletter(target, "Günlük")
+            if s: 
+                st.sidebar.success(f"✅ Rapor başarıyla {target} adresine gönderildi!") 
+            else: 
+                st.sidebar.error(m)
     else:
         with st.spinner(f"{target} adresine gönderiliyor..."):
             s, m = send_newsletter(target, "Günlük")
