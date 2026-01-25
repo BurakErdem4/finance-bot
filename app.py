@@ -26,6 +26,16 @@ import paper_trader
 import time
 from datetime import datetime
 
+# --- Session State Initialization (User Provided) ---
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+if 'guest_mode' not in st.session_state:
+    st.session_state['guest_mode'] = False
+if 'user_email' not in st.session_state:
+    st.session_state['user_email'] = None
+if 'page' not in st.session_state:
+    st.session_state['page'] = 'Giriş'
+
 # Veritabanını başlat
 init_db()
 
