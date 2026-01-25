@@ -361,13 +361,22 @@ elif page == "Hisse Tarama":
             if isinstance(df_bist, pd.DataFrame) and not df_bist.empty:
                 st.success(f"{len(df_bist)} adet potansiyel fırsat bulundu!")
                 
+                # Helper for display
+                def fmt_decimal(val):
+                    if val == -1 or val is None: return "Veri Yok"
+                    return f"{val:.2f}"
+                
+                df_display = df_bist.copy()
+                df_display['PD/DD'] = df_display['PD/DD'].apply(lambda x: x if x != -1 else None)
+                df_display['FD/FAVÖK'] = df_display['FD/FAVÖK'].apply(lambda x: x if x != -1 else None)
+                
                 # Styling
                 st.dataframe(
-                    df_bist.style.format({
+                    df_display.style.format({
                         "Fiyat": "{:.2f} ₺",
                         "PD/DD": "{:.2f}",
                         "FD/FAVÖK": "{:.2f}"
-                    }).background_gradient(subset=["PD/DD", "FD/FAVÖK"], cmap="RdYlGn_r"), # Green for low values
+                    }, na_rep="Veri Yok").background_gradient(subset=["PD/DD", "FD/FAVÖK"], cmap="RdYlGn_r", vmin=0, vmax=10), 
                     use_container_width=True,
                     height=500
                 )

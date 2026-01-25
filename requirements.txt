@@ -5,3 +5,5 @@ plotly
 PyGithub
 borsapy
 pytz
+requests
+beautifulsoup4
