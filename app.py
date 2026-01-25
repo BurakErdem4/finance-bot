@@ -617,7 +617,10 @@ elif page == "Strateji Testi":
 # --- 6. CÜZDANIM (PORTFOLIO) ---
 # --- 6. CÜZDANIM (PORTFOLIO PRO) ---
 elif page == "Portföyüm":
-    st.title("📱 Portföyüm")
+    if st.session_state.guest_mode:
+        st.error("Bu sayfaya erişim yetkiniz yok.")
+    else:
+        st.title("📱 Portföyüm")
     
     # Fetch Data
     with st.spinner("Portföy verileri hazırlanıyor..."):
