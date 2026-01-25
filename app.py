@@ -410,41 +410,85 @@ elif page == "Hisse Tarama":
             st.warning("ETF verileri alınamadı.")
 
 # --- 3. FON ANALİZİ ---
+# --- 3. FON ANALİZİ (YENİLENMİŞ) ---
 elif page == "Fon Analizi":
-    st.title("TEFAS Fon Analizi")
-    fund_code = create_search_box("Fon Kodu (Örn: TCD, AFT)", type="fund", key="fund_sym")
-
-    if fund_code:
-        # TEFAS'tan veri çekme simülasyonu veya gerçek istek
-        with st.spinner(f"{fund_code} verileri çekiliyor..."):
-            data = get_fund_analysis(fund_code)
-
-        if data["error"]:
-            st.error(f"Hata oluştu: {data['error']}")
-        else:
-            f_col1, f_col2, f_col3 = st.columns(3)
-            f_col1.metric("Fon Adı", data['info']['title'])
-            f_col2.metric("Fiyat", format_price(data['info']['price']))
-            f_col3.metric("Kategori", data['info']['category'])
-
-            st.subheader("Dönemsel Getiriler (%)")
-            ret_df = pd.DataFrame([data['returns']])
-            st.table(ret_df)
-
-            st.subheader("Varlık Dağılımı")
-            alloc = data['allocation']
-            if alloc is not None and not alloc.empty:
-                name_col = 'name' if 'name' in alloc.columns else 'asset_name'
-                val_col = 'value' if 'value' in alloc.columns else 'weight'
-
-                if name_col in alloc.columns and val_col in alloc.columns:
-                    fig = px.pie(alloc, values=val_col, names=name_col, title=f"{fund_code} Portföy Dağılımı")
-                    fig.update_layout(template="plotly_dark")
-                    st.plotly_chart(fig, use_container_width=True)
+    st.title("📊 TEFAS Fon Analizi & Karşılaştırma")
+    
+    # Checkbox for data load (Heavy operation)
+    if st.button("🔄 Verileri Güncelle / Yükle"):
+        st.cache_data.clear()
+        
+    with st.spinner("TEFAS verileri ve analizler hazırlanıyor (Bu işlem biraz zaman alabilir)..."):
+        # Fetching all funds data with calculated metrics
+        df_funds = fetch_tefas_data()
+        
+    if not df_funds.empty:
+        # Layout: Tabs for different views
+        ftab1, ftab2 = st.tabs(["📋 Fon Tarama & Sıralama", "📈 Fon Karşılaştırma"])
+        
+        with ftab1:
+            st.subheader("Piyasadaki Tüm Fonlar")
+            
+            # Filters
+            col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                # Search
+                search_term = st.text_input("Fon Ara (Ad veya Kod)", "").upper()
+            with col_f2:
+                # Extract unique founders/types if possible. 
+                # Since we don't scrape type specifically in the summarized fetch effectively without more calls,
+                # we will filter by text search or simplistic logic.
+                st.caption("🔍 Tablo üzerinden de sıralama yapabilirsiniz.")
+                
+            # Filtering
+            filtered_df = df_funds.copy()
+            if search_term:
+                filtered_df = filtered_df[
+                    filtered_df['Fon Kodu'].str.contains(search_term) | 
+                    filtered_df['Fon Adı'].str.upper().str.contains(search_term)
+                ]
+            
+            # Display Table
+            st.dataframe(
+                filtered_df.style.format({
+                    "Fiyat": "{:.4f} ₺",
+                    "Günlük (%)": "{:+.2f}%",
+                    "Aylık (%)": "{:+.2f}%",
+                    "YTD (%)": "{:+.2f}%",
+                    "Yıllık (%)": "{:+.2f}%",
+                    "Sharpe": "{:.2f}"
+                }).background_gradient(subset=["Aylık (%)", "Yıllık (%)", "Sharpe"], cmap="RdYlGn", vmin=-5, vmax=100),
+                use_container_width=True,
+                height=600
+            )
+            
+        with ftab2:
+            st.subheader("Fon Performans Karşılaştırma (1 Yıl)")
+            
+            # Benchmarking
+            all_codes = df_funds['Fon Kodu'].tolist()
+            default_selection = ["TCD", "MAC", "AFT"]
+            # Filter defaults to exist in list
+            default_selection = [x for x in default_selection if x in all_codes]
+            
+            selected_funds = st.multiselect("Karşılaştırılacak Fonları Seçin:", all_codes, default=default_selection)
+            
+            if selected_funds:
+                with st.spinner("Seçilen fonların geçmiş verileri toplanıyor..."):
+                    hist_df = get_fund_history(selected_funds)
+                    
+                if not hist_df.empty:
+                    st.success(f"{len(selected_funds)} fon kıyaslanıyor.")
+                    fig_comp = px.line(hist_df, title="Getiri Karşılaştırması (%) - 1 Yıl")
+                    fig_comp.update_layout(template="plotly_dark", height=500, yaxis_title="Getiri (%)")
+                    st.plotly_chart(fig_comp, use_container_width=True)
                 else:
-                    st.dataframe(alloc)
+                    st.warning("Seçilen fonlar için tarihsel veri bulunamadı.")
             else:
-                st.info("Varlık dağılım verisi bulunamadı.")
+                st.info("Lütfen en az bir fon seçiniz.")
+                
+    else:
+        st.error("TEFAS verileri çekilemedi.")
 
 # --- 4. PORTFÖY DENGELEYİCİ ---
 elif page == "Portföy Dengeleyici":
