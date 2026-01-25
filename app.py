@@ -36,8 +36,65 @@ if 'user_email' not in st.session_state:
 if 'page' not in st.session_state:
     st.session_state['page'] = 'Giriş'
 
-# Veritabanını başlat
 init_db()
+
+# --- LOGIN UI FUNCTION ---
+def login_ui():
+    st.set_page_config(page_title="Finans Botu", layout="centered", initial_sidebar_state="collapsed")
+    
+    st.markdown("<h1 style='text-align: center; color: #4CAF50;'>Finans Botu 🤖</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center;'>Kişisel Finans Asistanınız</p>", unsafe_allow_html=True)
+    
+    tab1, tab2, tab3 = st.tabs(["Giriş Yap", "Kayıt Ol", "Misafir"])
+    
+    with tab1:
+        with st.form("login_form"):
+            email = st.text_input("E-posta Adresi")
+            password = st.text_input("Şifre", type="password")
+            submitted = st.form_submit_button("Giriş Yap")
+            
+            if submitted:
+                # Lazy import to avoid circular dependency if any
+                from database import verify_user
+                user, msg = verify_user(email, password)
+                if user:
+                    st.session_state.logged_in = True
+                    st.session_state.user_info = user
+                    st.session_state.guest_mode = False
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
+    
+    with tab2:
+        with st.form("register_form"):
+            new_name = st.text_input("Ad Soyad")
+            new_email = st.text_input("E-posta Adresi")
+            new_pass = st.text_input("Şifre", type="password")
+            reg_submitted = st.form_submit_button("Kayıt Ol")
+            
+            if reg_submitted:
+                from database import add_user
+                if new_email and new_pass:
+                    success, msg = add_user(new_email, new_pass, new_name)
+                    if success:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
+                else:
+                    st.warning("Lütfen tüm alanları doldurunuz.")
+
+    with tab3:
+        st.info("Üye olmadan sadece piyasa verilerini inceleyebilirsiniz. Portföy kaydetme özelliği kapalıdır.")
+        if st.button("Misafir Olarak Devam Et"):
+            st.session_state.logged_in = True
+            st.session_state.guest_mode = True
+            st.rerun()
+
+# --- STRICT ACCESS CONTROL ---
+if not st.session_state['logged_in']:
+    login_ui()
+    st.stop()
 
 # Reusable component for Technical Analysis
 def display_technical_analysis(df, symbol):
