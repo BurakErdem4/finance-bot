@@ -340,34 +340,62 @@ if page == "Piyasa Özeti":
         st.info("Şu an için taranan varlıklarda güncel haber akışı bulunmuyor.")
 
 # --- 2. HİSSE TARAMA ---
+# --- 2. HİSSE TARAMA (YENİLENMİŞ) ---
 elif page == "Hisse Tarama":
-    st.title("🔍 Hisse Tarama (Screener)")
-    st.markdown("""
-    **Kriterler:**
-    - Endeks: **BIST SINAİ** (XUSIN)
-    - F/K Oranı (P/E) < **10**
-    - Son 1 Aylık Getiri > **%0**
-    """)
+    st.title("🔍 Hisse Senedi & ETF Tarama Pro")
     
-    if st.button("Taramayı Başlat"):
-        with st.spinner("Hisseler taranıyor..."):
-            df = find_cheap_industrial_stocks()
+    tabs1, tabs2 = st.tabs(["🇹🇷 BIST Temel Analiz", "🇺🇸 ABD ETF Fırsatları"])
+    
+    with tabs1:
+        st.header("BIST Temel Değer Analizi")
+        st.info("""
+        **Sistem Mantığı:**
+        - **Bankalar & GYO'lar:** PD/DD < 1.0 olanlar. (Ucuz kalmış varlıklar)
+        - **Sanayi & Hizmetler:** FD/FAVÖK < 5.0 olanlar. (İşletme karlılığına göre ucuz)
+        """)
+        
+        if st.button("🚀 Taramayı Başlat (BIST 30+)", key="btn_bist_scan"):
+            with st.spinner("BIST verileri taranıyor ve analiz ediliyor..."):
+                df_bist = fetch_bist_data()
+                
+            if isinstance(df_bist, pd.DataFrame) and not df_bist.empty:
+                st.success(f"{len(df_bist)} adet potansiyel fırsat bulundu!")
+                
+                # Styling
+                st.dataframe(
+                    df_bist.style.format({
+                        "Fiyat": "{:.2f} ₺",
+                        "PD/DD": "{:.2f}",
+                        "FD/FAVÖK": "{:.2f}"
+                    }).background_gradient(subset=["PD/DD", "FD/FAVÖK"], cmap="RdYlGn_r"), # Green for low values
+                    use_container_width=True,
+                    height=500
+                )
+            else:
+                st.warning("Kriterlere uygun hisse bulunamadı veya veri çekilemedi.")
+                
+    with tabs2:
+        st.header("ABD ETF Dünyası")
+        st.caption("⚠️ **Risk Notu:** ABD ETF'leri dolar bazlıdır ve yönetim masrafı (Expense Ratio) kesintisi vardır. Uzun vadeli yatırıma uygundur.")
+        
+        with st.spinner("ETF verileri güncelleniyor..."):
+            df_etf = fetch_us_etf_data()
             
-        if df is not None and not df.empty:
-            st.success(f"{len(df)} adet hisse bulundu.")
-            st.dataframe(df, use_container_width=True)
+        if isinstance(df_etf, pd.DataFrame) and not df_etf.empty:
+            # Sort by YTD Return Desc
+            df_etf = df_etf.sort_values("YTD Getiri (%)", ascending=False)
             
-            st.markdown("---")
-            st.subheader("Hızlı Teknik Analiz")
-            selected_stock = st.selectbox("Analiz edilecek hisseyi seçin:", df['symbol'].tolist())
-            
-            if st.button("Teknik Analizi Göster"):
-                yf_symbol = selected_stock + ".IS"
-                with st.spinner(f"{yf_symbol} analiz ediliyor..."):
-                    stock_hist = get_yfinance_data(yf_symbol, period="1y")
-                    display_technical_analysis(stock_hist, yf_symbol)
+            st.dataframe(
+                df_etf.style.format({
+                    "YTD Getiri (%)": "{:+.2f}%",
+                    "Masraf (%)": "{:.2f}%",
+                    "PE (F/K)": "{:.1f}",
+                    "Fiyat ($)": "${:.2f}"
+                }).bar(subset=["YTD Getiri (%)"], align="mid", color=['#d65f5f', '#5fba7d']),
+                use_container_width=True
+            )
         else:
-            st.warning("Kriterlere uygun hisse bulunamadı veya bir hata oluştu.")
+            st.warning("ETF verileri alınamadı.")
 
 # --- 3. FON ANALİZİ ---
 elif page == "Fon Analizi":
