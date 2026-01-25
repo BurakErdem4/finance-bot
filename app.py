@@ -261,28 +261,25 @@ if current_user and not is_guest:
 test_email = st.sidebar.text_input("Hedef Email", placeholder=hint_text, help=f"Kayıtlı adresiniz: {current_user}" if (current_user and not is_guest) else "Misafirler manuel giriş yapmalıdır.")
 
 if st.sidebar.button("Raporu Bana Şimdi Gönder"):
-    target = None
-    
-    # 1. Check Input
-    if test_email:
-        target = test_email
-    # 2. Smart Default
-    elif current_user and not is_guest:
+    # 1. Auto-fill if empty and logged in
+    target = test_email
+    if not target and current_user and not is_guest:
         target = current_user
         
-    # 3. Error Control
+    # 2. Check if still empty
     if not target:
         st.sidebar.error("Lütfen geçerli bir e-posta adresi girin.")
     else:
-        with st.spinner(f"{target} adresine gönderiliyor..."):
-            s, m = send_newsletter(target, "Günlük")
-            if s: 
-                st.sidebar.success(f"✅ Rapor başarıyla {target} adresine gönderildi!") 
-            else: 
-                st.sidebar.error(m)
-    else:
-        with st.spinner(f"{target} adresine gönderiliyor..."):
-            s, m = send_newsletter(target, "Günlük")
+        # 3. Send Process
+        with st.spinner(f"Rapor {target} adresine hazırlanıyor..."):
+            try:
+                success, msg = send_newsletter(target, "Günlük")
+                if success:
+                    st.sidebar.success(f"✅ Gönderildi: {target}")
+                else:
+                    st.sidebar.error(f"Hata: {msg}")
+            except Exception as e:
+                st.sidebar.error(f"Beklenmedik hata: {str(e)}")
             if s: 
                 st.sidebar.success(m) 
             else: 
