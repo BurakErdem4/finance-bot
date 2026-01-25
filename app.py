@@ -9,6 +9,7 @@ from plotly.subplots import make_subplots
 # Yerel Modüller
 from screener_module import fetch_bist_data, fetch_us_etf_data
 from fund_module import fetch_tefas_data, get_fund_history
+from calendar_module import fetch_economic_calendar
 from info_module import get_market_summary
 import config
 from database import init_db
@@ -130,7 +131,7 @@ def create_search_box(label, type="general", key=None):
 
 # Kenar Çubuğu (Navigasyon)
 st.sidebar.title("Finans Botu 🤖")
-page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Portföy Dengeleyici", "Strateji Testi", "Cüzdanım", "👻 Gölge Portföy", "Raporlar", "Bilgi Notu"])
+page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Portföyüm", "Portföy Dengeleyici", "Strateji Testi", "Raporlar"])
 
 st.sidebar.markdown("---")
 
@@ -615,7 +616,7 @@ elif page == "Strateji Testi":
 
 # --- 6. CÜZDANIM (PORTFOLIO) ---
 # --- 6. CÜZDANIM (PORTFOLIO PRO) ---
-elif page == "Cüzdanım":
+elif page == "Portföyüm":
     st.title("📱 Portföyüm")
     
     # Fetch Data
@@ -792,9 +793,9 @@ elif page == "Cüzdanım":
         if not history.empty:
             st.dataframe(history.drop(columns=['id']), use_container_width=True, height=200)
 
-# --- 7. GÖLGE PORTFÖY (PAPER TRADING) ---
-elif page == "👻 Gölge Portföy":
-    st.title("👻 Gölge Portföy (Paper Trading)")
+# --- 7. GÖLGE PORTFÖY (KALDIRILDI) ---
+# elif page == "👻 Gölge Portföy":
+#     st.title("👻 Gölge Portföy")
     st.markdown("Botun kendi kendine yaptığı sanal işlemleri ve performansını takip edin.")
     
     # Metrics
