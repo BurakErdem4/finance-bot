@@ -10,3 +10,4 @@ beautifulsoup4
 tefas-crawler
 bcrypt
 textblob
+matplotlib

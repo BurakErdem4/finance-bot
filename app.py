@@ -243,14 +243,17 @@ st.sidebar.markdown("---")
 
 # 📧 Manuel Raporlama (Test)
 st.sidebar.subheader("🚀 Hızlı Gönderim (Test)")
-# 🚀 Hızlı Gönderim (DÜZELTİLMİŞ)
+# 🚀 Hızlı Gönderim (DÜZELTİLMİŞ v2)
 target_email_input = st.sidebar.text_input("Hedef Email", placeholder="Boş bırakırsanız: " + (st.session_state.get('user_email') if st.session_state.get('user_email') else "Tanımsız"), help="Boş bırakırsanız kayıtlı mailinize gönderilir.")
 
 if st.sidebar.button("Raporu Bana Şimdi Gönder"):
     # 1. Hedef Belirleme
     final_email = target_email_input
-    if not final_email and st.session_state.get('logged_in', False):
-        final_email = st.session_state.get('user_email')
+    
+    # Eğer input boşsa VE kullanıcı giriş yapmışsa (misafir değilse)
+    if not final_email:
+        if st.session_state.get('logged_in', False) and not st.session_state.get('guest_mode', False):
+            final_email = st.session_state.get('user_email')
 
     # 2. Kontrol ve Gönderim
     if not final_email:
@@ -259,12 +262,11 @@ if st.sidebar.button("Raporu Bana Şimdi Gönder"):
         with st.spinner(f"Rapor hazırlanıyor: {final_email}..."):
             try:
                 # Fonksiyonu çağır ve sonuçları al
-                # Düzeltme: send_daily_report yerine send_newsletter kullanıldı
                 send_success, send_message = send_newsletter(final_email, "Günlük")
                 
                 # Sonucu DEĞERLENDİR
                 if send_success:
-                    st.sidebar.success(f"✅ Gönderildi:\n{final_email}")
+                    st.sidebar.success(f"✅ Rapor {final_email} adresine gönderildi")
                 else:
                     st.sidebar.error(f"Hata: {send_message}")
             except Exception as e:
