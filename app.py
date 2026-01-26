@@ -1,12 +1,14 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import borsapy as bp
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import time
+from datetime import datetime
+import pytz 
 
-# Yerel Modüller
+# Yerel Modüller (Senin dosya yapına uygun)
 from screener_module import fetch_bist_data, fetch_us_etf_data
 from fund_module import fetch_tefas_data, get_fund_history
 from calendar_module import fetch_economic_calendar
@@ -19,14 +21,11 @@ from benchmark_module import get_benchmark_data, get_benchmark_summary
 from backtest_module import run_backtest, run_periodic_backtest
 from mail_module import send_newsletter, fetch_newsletter_data
 from portfolio_manager import add_transaction, get_all_transactions, get_portfolio_balance, get_portfolio_by_category
-
 from sentiment_module import get_sentiment_score
 import subscription_module
 import paper_trader
-import time
-from datetime import datetime
 
-# --- Session State Initialization (User Provided) ---
+# --- Session State Başlatma ---
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 if 'guest_mode' not in st.session_state:
@@ -36,9 +35,10 @@ if 'user_email' not in st.session_state:
 if 'page' not in st.session_state:
     st.session_state['page'] = 'Giriş'
 
+# Veritabanını başlat
 init_db()
 
-# --- LOGIN UI FUNCTION ---
+# --- GİRİŞ EKRANI (LOGIN UI) ---
 def login_ui():
     st.set_page_config(page_title="Finans Botu", layout="centered", initial_sidebar_state="collapsed")
     
@@ -54,13 +54,13 @@ def login_ui():
             submitted = st.form_submit_button("Giriş Yap")
             
             if submitted:
-                # Lazy import to avoid circular dependency if any
                 from database import verify_user
                 user, msg = verify_user(email, password)
                 if user:
                     st.session_state.logged_in = True
                     st.session_state.user_info = user
                     st.session_state.guest_mode = False
+                    st.session_state.user_email = user['email'] # Email'i state'e kaydet
                     st.success(msg)
                     st.rerun()
                 else:
@@ -93,70 +93,14 @@ def login_ui():
             st.session_state['user_email'] = 'guest'
             st.rerun()
 
-# --- STRICT ACCESS CONTROL ---
+# --- ERİŞİM KONTROLÜ ---
 if not st.session_state['logged_in']:
     login_ui()
     st.stop()
 
-# Reusable component for Technical Analysis
-def display_technical_analysis(df, symbol):
-    if df.empty:
-        st.warning(f"{symbol} için veri bulunamadı.")
-        return
+# --- YARDIMCI FONKSİYONLAR ---
 
-    # Signal Box
-    signal = get_technical_signals(df)
-    st.markdown(f"""
-    <div style="padding:15px; border-radius:12px; background-color:#1E1E1E; border: 2px solid {signal['color']}; color:white; margin-bottom:20px;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <h2 style="margin:0; color:{signal['color']};">{signal['label']}</h2>
-                <p style="margin:5px 0 0 0; color:#AAA;">{signal['desc']}</p>
-            </div>
-            <div style="text-align: right;">
-                <div style="font-size: 24px; font-weight: bold;">{signal['score']}/100</div>
-                <div style="font-size: 14px; color:#AAA;">Teknik Puan</div>
-            </div>
-        </div>
-        <hr style="border: 0; border-top: 1px solid #333; margin: 15px 0;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div style="font-size: 16px;">🎯 Önerilen Giriş: <span style="font-weight:bold; color:cyan;">Portföyün %{signal['kelly']}</span></div>
-            <div style="font-size: 14px; color:#AAA;">RSI: {signal['rsi']}</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # SMA Hesaplamaları
-    sma50 = calculate_sma(df, 50)
-    sma200 = calculate_sma(df, 200)
-    rsi = calculate_rsi(df)
-    
-    # Subplots
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                       vertical_spacing=0.1, subplot_titles=(f'Fiyat ve SMA', 'RSI (14)'),
-                       row_heights=[0.7, 0.3])
-    
-    # Fiyat Grafiği
-    fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Fiyat', line=dict(color='white')), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=sma50, name='SMA 50', line=dict(color='cyan', width=1.5)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=sma200, name='SMA 200', line=dict(color='red', width=1.5)), row=1, col=1)
-    
-    # RSI Grafiği
-    fig.add_trace(go.Scatter(x=df.index, y=rsi, name='RSI', line=dict(color='purple')), row=2, col=1)
-    fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
-    fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
-    
-    fig.update_layout(height=500, template="plotly_dark", showlegend=True)
-    st.plotly_chart(fig, use_container_width=True)
-
-# Sayfa Ayarları
-st.set_page_config(
-    page_title="Finansal Takip Botu",
-    page_icon="📈",
-    layout="wide"
-)
-
-# Caching for yfinance to prevent frequent API calls
+# Yfinance Önbellekleme
 @st.cache_data(ttl=900)
 def get_yfinance_data(symbol, period="1y"):
     try:
@@ -165,40 +109,25 @@ def get_yfinance_data(symbol, period="1y"):
     except:
         return pd.DataFrame()
 
-# Helper for price formatting
-def format_price(val, currency="₺"):
-    if isinstance(val, dict):
-        val = val.get('last') or val.get('price', 0)
-    try:
-        val_str = f"{float(val):,.2f}"
-        if currency == "$":
-            return f"${val_str}"
-        return f"{val_str} {currency}"
-    except (ValueError, TypeError):
-        return "---"
-
-# Helper for Autocomplete Search Box
+# Arama Kutusu (Manuel Giriş Destekli)
 def create_search_box(label, type="general", key=None):
-    """
-    Creates a selectbox with a 'manual entry' fallback.
-    """
     if type == "fund":
         options = config.TEFAS_FUNDS
     else:
         options = config.ALL_SYMBOLS
         
-    # Use selectbox with empty option
     selected = st.selectbox(label, [""] + options, key=f"sel_{key}" if key else None)
-    
-    # Toggle for Manual Entry
     manual_entry = st.checkbox("Listede yok mu? Manuel gir", key=f"chk_{key}" if key else None)
     
     if manual_entry:
         return st.text_input(f"{label} (Manuel)", key=f"txt_{key}" if key else None).upper()
-    
     return selected
 
-# Kenar Çubuğu (Navigasyon)
+# --- UYGULAMA ANA YAPISI ---
+
+st.set_page_config(page_title="Finansal Takip Botu", page_icon="📈", layout="wide")
+
+# --- SIDEBAR (SOL MENÜ) ---
 if st.session_state.get('logged_in'):
     user_name = st.session_state.user_info.get('name') or st.session_state.user_info.get('email')
     if st.session_state.get('guest_mode'):
@@ -209,19 +138,23 @@ if st.session_state.get('logged_in'):
         st.session_state['logged_in'] = False
         st.session_state['user_info'] = None
         st.session_state['guest_mode'] = False
+        st.session_state['user_email'] = None
         st.rerun()
 
 st.sidebar.title("Finans Botu 🤖")
-page = st.sidebar.radio("Menü", ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Portföyüm", "Portföy Dengeleyici", "Strateji Testi", "Raporlar"])
+
+# Menü Listesi (Bilgi Notu Kaldırıldı, Portföy Birleştirildi)
+menu_options = ["Piyasa Özeti", "Hisse Tarama", "Fon Analizi", "Portföyüm", "Portföy Dengeleyici", "Strateji Testi", "Raporlar"]
+page = st.sidebar.radio("Menü", menu_options)
 
 st.sidebar.markdown("---")
 
-import pytz # Added for Timezone
-
-# 📧 Bülten Aboneliği (Yeni Sistem)
+# 📧 Bülten Aboneliği
 st.sidebar.subheader("📩 Bülten Aboneliği")
 with st.sidebar.form("sub_form"):
-    user_email = st.text_input("E-posta Adresi", placeholder="ornek@gmail.com")
+    # Eğer giriş yapmış kullanıcı ise mailini otomatik getir
+    default_sub_mail = st.session_state.user_email if not st.session_state.guest_mode else ""
+    user_email_sub = st.text_input("E-posta Adresi", value=default_sub_mail, placeholder="ornek@gmail.com")
     c1, c2 = st.columns(2)
     daily_sub = c1.checkbox("Günlük", value=True)
     weekly_sub = c2.checkbox("Haftalık", value=True)
@@ -229,9 +162,9 @@ with st.sidebar.form("sub_form"):
     sub_btn = st.form_submit_button("Abone Ol / Güncelle")
     
     if sub_btn:
-        if user_email and "@" in user_email:
+        if user_email_sub and "@" in user_email_sub:
             with st.spinner("İşlem yapılıyor..."):
-                success, msg = subscription_module.add_subscriber(user_email, daily_sub, weekly_sub)
+                success, msg = subscription_module.add_subscriber(user_email_sub, daily_sub, weekly_sub)
                 if success:
                     st.success(msg)
                 else:
@@ -241,161 +174,101 @@ with st.sidebar.form("sub_form"):
 
 st.sidebar.markdown("---")
 
-# 📧 Manuel Raporlama (Test)
+# 🚀 Hızlı Gönderim (DÜZELTİLMİŞ KOD BLOĞU)
 st.sidebar.subheader("🚀 Hızlı Gönderim (Test)")
 
-# Determine current user for hint
-user_info = st.session_state.get('user_info', {})
-# Support both direct key or nested dict
-if isinstance(user_info, dict):
-    current_user = st.session_state.get('user_email') or user_info.get('email')
-else:
-    current_user = st.session_state.get('user_email')
-    
+# Kullanıcı belirleme
+current_user = st.session_state.get('user_email')
 is_guest = st.session_state.get('guest_mode', False)
 
+# İpucu metni
 hint_text = "me@test.com"
 if current_user and not is_guest:
-    hint_text = f"Boş bırakırsanız: {current_user}"
+    hint_text = f"Boşsa: {current_user}"
 
-test_email = st.sidebar.text_input("Hedef Email", placeholder=hint_text, help=f"Kayıtlı adresiniz: {current_user}" if (current_user and not is_guest) else "Misafirler manuel giriş yapmalıdır.")
+test_email = st.sidebar.text_input("Hedef Email", placeholder=hint_text, help="Boş bırakırsanız kayıtlı mailinize gönderilir.")
 
 if st.sidebar.button("Raporu Bana Şimdi Gönder"):
-    # 1. Auto-fill if empty and logged in
+    # 1. Hedef Belirleme
     target = test_email
     if not target and current_user and not is_guest:
         target = current_user
         
-    # 2. Check if still empty
+    # 2. Kontrol
     if not target:
         st.sidebar.error("Lütfen geçerli bir e-posta adresi girin.")
     else:
-        # 3. Send Process
-        with st.spinner(f"Rapor {target} adresine hazırlanıyor..."):
+        # 3. Gönderim İşlemi
+        with st.sidebar.status(f"Rapor hazırlanıyor: {target}...", expanded=True) as status:
             try:
                 success, msg = send_newsletter(target, "Günlük")
                 if success:
-                    st.sidebar.success(f"✅ Gönderildi: {target}")
+                    status.update(label="Gönderim Başarılı!", state="complete", expanded=False)
+                    st.sidebar.success(f"✅ Gönderildi:\n{target}")
                 else:
+                    status.update(label="Hata Oluştu", state="error")
                     st.sidebar.error(f"Hata: {msg}")
             except Exception as e:
+                status.update(label="Sistem Hatası", state="error")
                 st.sidebar.error(f"Beklenmedik hata: {str(e)}")
-            if s: 
-                st.sidebar.success(m) 
-            else: 
-                st.sidebar.error(m)
-
-
-# ⏰ Otomatik Zamanlayıcı
-st.sidebar.markdown("---")
-st.sidebar.subheader("⏰ Otomatik Zamanlayıcı")
-enable_scheduler = st.sidebar.checkbox("Zamanlayıcıyı Aktif Et")
-
-if enable_scheduler:
-    status_placeholder = st.sidebar.empty()
-    
-    # Basit bir döngü
-    # Not: Bu döngü UI'ı bloklayabilir, bot modu gibi düşünülmeli
-    if "last_check" not in st.session_state:
-        st.session_state.last_check = time.time()
-        
-    tz = pytz.timezone('Europe/Istanbul')
-    now = datetime.now(tz)
-    curr_time = now.strftime("%H:%M")
-    
-    try:
-        # Timezone handled by pytz, so standard time is correct local time
-        # US Schedule logic might need adjustment if it refers to specific US hours, but normally we just track local trigger times from config
-        
-        # Taking simplified approach: Config times are considered Local TR Times as per user request
-        # If config has distinction, we use it.
-        # Assuming config.NEWSLETTER_SCHEDULE has "US" and "TR" keys with local trigger times.
-        
-        us_time = config.NEWSLETTER_SCHEDULE["US"]["winter"] # Defaulting to single trigger for simplicity or keep existing logic if flexible
-        
-        # TR Time: start/end aralığı veya tek saat
-        tr_conf = config.NEWSLETTER_SCHEDULE["TR"]
-        tr_time = tr_conf if isinstance(tr_conf, str) else tr_conf.get("start", "10:15")
-        
-        status_placeholder.info(f"⏳ Takip: {curr_time} \nTR: {tr_time} | US: {us_time}")
-        
-        # State check for daily sending
-        today_str = now.strftime("%Y-%m-%d")
-        if "sent_log" not in st.session_state:
-            st.session_state.sent_log = {} # {"TR": "2024-01-01", "US": "2024-01-01"}
-            
-        # TR Check
-        if curr_time == tr_time and st.session_state.sent_log.get("TR") != today_str:
-            with st.spinner("TR Raporu gönderiliyor..."):
-                send_newsletter(None, "Günlük")
-                st.session_state.sent_log["TR"] = today_str
-                st.success("TR Raporu gönderildi!")
-                
-        # US Check
-        if curr_time == us_time and st.session_state.sent_log.get("US") != today_str:
-            with st.spinner("ABD Raporu gönderiliyor..."):
-                send_newsletter(None, "Günlük")
-                st.session_state.sent_log["US"] = today_str
-                st.success("ABD Raporu gönderildi!")
-                
-    except Exception as e:
-        status_placeholder.warning(f"Zamanlayıcı Hatası: {str(e)}")
-        
-    # Auto-rerun loop (Sleep 60s)
-    time.sleep(30)
-    st.rerun()
 
 st.sidebar.markdown("---")
 
-# --- 1. PİYASA ÖZETİ (DASHBOARD) ---
+# ⏰ Otomatik Zamanlayıcı (Basitleştirilmiş)
+# st.sidebar.subheader("⏰ Otomatik Zamanlayıcı") ... (İsteğe bağlı, kod karmaşasını önlemek için kapalı tutulabilir veya eklenebilir. Şimdilik sade tutuyorum)
+
+# --- SAYFA İÇERİKLERİ ---
+
+# --- 1. PİYASA ÖZETİ ---
 if page == "Piyasa Özeti":
     st.title("📊 Piyasa Kokpiti")
     
-    # 1. Geniş Pazar Tablosu
+    # A. Ekonomik Takvim (Bilgi Notu Sayfasından Buraya Taşındı)
+    with st.expander("📅 Ekonomik Takvim & Beklentiler", expanded=False):
+        cal_filter = st.radio("Bölge Seçimi:", ["Türkiye (TR)", "ABD (US)", "Global (All)"], horizontal=True)
+        filter_map = {"Türkiye (TR)": "TR", "ABD (US)": "US", "Global (All)": "ALL"}
+        
+        # Takvim verisini çek
+        calendar_data = fetch_economic_calendar(country=filter_map[cal_filter])
+        
+        if not calendar_data.empty:
+            st.dataframe(calendar_data, use_container_width=True, hide_index=True)
+        else:
+            st.info("Seçilen filtre için bugün önemli bir veri akışı bulunmuyor.")
+
+    st.markdown("---")
+
+    # B. Geniş Pazar Tablosu
     st.subheader("🌍 Küresel Piyasalar ve Varlıklar")
     
-    with st.spinner("Piyasa verileri güncelleniyor (Bülten Modu)..."):
-        # Reuse newsletter logic
+    with st.spinner("Piyasa verileri güncelleniyor..."):
         raw_data = fetch_newsletter_data()
         
-    # Flatten Data for Table
     table_rows = []
     for cat, assets in raw_data.items():
         for asset in assets:
-            # Handle manual/error cases gracefully
             price = asset.get('price', 0)
-            d_chg = asset.get('daily', 0)
-            w_chg = asset.get('weekly', 0)
-            m_chg = asset.get('monthly', 0)
-            
-            # Format Price
-            if "USD" in asset['name'] or "EUR" in asset['name']: p_str = f"{price:.4f}"
-            elif "Altın" in asset['name'] or "Gümüş" in asset['name']: p_str = f"{price:.2f}"
-            else: p_str = f"{price:,.2f}"
-                
             table_rows.append({
                 "Kategori": cat,
                 "Varlık İsmi": asset['name'],
-                "Son Fiyat": p_str,
-                "Günlük (%)": d_chg,
-                "Haftalık (%)": w_chg,
-                "Aylık (%)": m_chg
+                "Son Fiyat": price,
+                "Günlük (%)": asset.get('daily', 0),
+                "Haftalık (%)": asset.get('weekly', 0),
+                "Aylık (%)": asset.get('monthly', 0)
             })
             
     if table_rows:
         df_market = pd.DataFrame(table_rows)
         
-        # Color Styling Function
         def color_coding(val):
             if isinstance(val, (int, float)):
                 color = '#4CAF50' if val > 0 else '#FF5252' if val < 0 else '#FFFFFF'
                 return f'color: {color}'
             return ''
 
-        # Apply styling
-        # Note: formatting floats in pandas display
         st.dataframe(
             df_market.style.format({
+                "Son Fiyat": "{:,.2f}",
                 "Günlük (%)": "{:+.2f}%",
                 "Haftalık (%)": "{:+.2f}%",
                 "Aylık (%)": "{:+.2f}%"
@@ -408,89 +281,59 @@ if page == "Piyasa Özeti":
         
     st.markdown("---")
     
-    # 2. Akıllı Haber Akışı
+    # C. Haber Akışı
     st.subheader("📢 Piyasa Haberleri ve Beklentiler")
-    
-    # Define key assets to scan for news
     news_targets = ["XU100.IS", "USDTRY=X", "BTC-USD", "GC=F", "AAPL", "NVDA", "THYAO.IS"]
     
-    with st.spinner("Haber akışları taranıyor ve analiz ediliyor..."):
+    with st.spinner("Haber akışları taranıyor..."):
         news_items = []
         for sym in news_targets:
             s_data = get_sentiment_score(sym)
-            if s_data and s_data.get('timestamp', 0) > 0 and s_data.get('is_fresh'): # Only fresh news? Or all? User said "En Yeni". Let's include all but prioritizing fresh.
-                # Enrich with symbol name roughly
+            if s_data and s_data.get('timestamp', 0) > 0:
                 s_data['symbol'] = sym
                 news_items.append(s_data)
         
-        # Sort: 1. Timestamp (Desc), 2. Score (Abs Desc - Impact)
-        # Actually user said: Prioritize Newest, then Impact.
-        # So primary sort key is timestamp.
-        news_items.sort(key=lambda x: (x.get('timestamp', 0), abs(x.get('score', 0))), reverse=True)
+        news_items.sort(key=lambda x: (x.get('timestamp', 0)), reverse=True)
         
-    # Display News
     if news_items:
         for news in news_items:
-            # Color badge
             lbl = news['label']
-            if lbl == "POZİTİF": color = "green"
-            elif lbl == "NEGATİF": color = "red"
-            else: color = "gray"
+            color = "green" if lbl == "POZİTİF" else "red" if lbl == "NEGATİF" else "gray"
             
-            with st.expander(f"{news['time_label']} | {news['title']} ({news['symbol']})", expanded=True):
+            with st.expander(f"{news['time_label']} | {news['title']} ({news['symbol']})"):
                 c1, c2 = st.columns([1, 4])
                 with c1:
-                    st.caption("Yapay Zeka Görüşü")
-                    st.markdown(f":{color}[{lbl}]")
-                    st.progress( (news['score'] + 1) / 2 ) # Map -1..1 to 0..1
+                    st.markdown(f":{color}[**{lbl}**]")
+                    st.progress((news['score'] + 1) / 2)
                 with c2:
-                    st.write(f"**Etki Puanı:** {news['score']}")
-                    st.info(f"Haber saati: {datetime.fromtimestamp(news.get('timestamp', 0)).strftime('%H:%M')}")
+                    st.write(f"Etki Puanı: {news['score']}")
+                    st.caption(f"Saat: {datetime.fromtimestamp(news.get('timestamp', 0)).strftime('%H:%M')}")
     else:
-        st.info("Şu an için taranan varlıklarda güncel haber akışı bulunmuyor.")
+        st.info("Güncel haber akışı bulunmuyor.")
 
 # --- 2. HİSSE TARAMA ---
-# --- 2. HİSSE TARAMA (YENİLENMİŞ) ---
 elif page == "Hisse Tarama":
     st.title("🔍 Hisse Senedi & ETF Tarama Pro")
     
     tabs1, tabs2 = st.tabs(["🇹🇷 BIST Akıllı Sıralama", "🇺🇸 ABD ETF Fırsatları"])
     
     with tabs1:
-        st.header("BIST Değer Analizi (Sıralı Liste)")
-        st.info("""
-        **Sıralama Mantığı (Ucuzdan Pahalıya):**
-        - **Bankalar & GYO'lar:** PD/DD puanına göre sıralanır. (Düşük = İyi)
-        - **Sanayi & Hizmetler:** FD/FAVÖK puanına göre sıralanır. (Düşük = İyi)
-        *Tüm BIST 30+ hisseleri taranır, eleme yapılmaz.*
-        """)
+        st.header("BIST Değer Analizi")
+        st.info("Bankalar PD/DD, Sanayi şirketleri FD/FAVÖK oranına göre sıralanır.")
         
         if st.button("🔄 Sıralamayı Güncelle (BIST)", key="btn_bist_scan"):
-            with st.spinner("Piyasa verileri analiz ediliyor ve puanlanıyor..."):
+            with st.spinner("Analiz yapılıyor..."):
                 df_bist = fetch_bist_data()
                 
-            if isinstance(df_bist, pd.DataFrame) and not df_bist.empty:
-                st.success(f"{len(df_bist)} hisse analiz edildi ve sıralandı.")
-                
-                # Helper for display
-                def fmt_decimal(val):
-                    if val == -1 or val is None: return "Veri Yok"
-                    return f"{val:.2f}"
-                
-                df_display = df_bist.copy()
-                df_display['PD/DD'] = df_display['PD/DD'].apply(lambda x: x if x != -1 else None)
-                df_display['FD/FAVÖK'] = df_display['FD/FAVÖK'].apply(lambda x: x if x != -1 else None)
-                
-                # Styling
+            if not df_bist.empty:
+                st.success(f"{len(df_bist)} hisse analiz edildi.")
                 st.dataframe(
-                    df_display.style.format({
+                    df_bist.style.format({
                         "Fiyat": "{:.2f} ₺",
                         "Günlük (%)": "{:+.2f}%",
                         "PD/DD": "{:.2f}",
                         "FD/FAVÖK": "{:.2f}"
-                    }, na_rep="-")
-                    .background_gradient(subset=["PD/DD", "FD/FAVÖK"], cmap="RdYlGn_r", vmin=0, vmax=10)
-                    .map(lambda x: f"color: {'green' if x > 0 else 'red'}", subset=["Günlük (%)"]), 
+                    }).background_gradient(subset=["PD/DD", "FD/FAVÖK"], cmap="RdYlGn_r"),
                     use_container_width=True,
                     height=600
                 )
@@ -498,59 +341,33 @@ elif page == "Hisse Tarama":
                 st.warning("Veri çekilemedi.")
                 
     with tabs2:
-        st.header("ABD ETF Dünyası (Sabit Takip)")
-        st.caption("Veriler ETF.com ve Yahoo Finance hibrit yapısı ile sağlanmaktadır.")
-        
+        st.header("ABD ETF Dünyası")
         with st.spinner("ETF verileri güncelleniyor..."):
             df_etf = fetch_us_etf_data()
             
-        if isinstance(df_etf, pd.DataFrame) and not df_etf.empty:
-            # Sort by YTD Return Desc
-            df_etf = df_etf.sort_values("YTD Getiri (%)", ascending=False)
-            
+        if not df_etf.empty:
             st.dataframe(
-                df_etf.style.format({
-                    "YTD Getiri (%)": "{:+.2f}%",
-                    "Masraf (%)": "{:.2f}%",
-                    "Fiyat ($)": "${:.2f}"
-                }).bar(subset=["YTD Getiri (%)"], align="mid", color=['#d65f5f', '#5fba7d']),
+                df_etf.style.format({"YTD Getiri (%)": "{:+.2f}%", "Fiyat ($)": "${:.2f}"}),
                 use_container_width=True
             )
         else:
             st.warning("ETF verileri alınamadı.")
 
 # --- 3. FON ANALİZİ ---
-# --- 3. FON ANALİZİ (YENİLENMİŞ) ---
 elif page == "Fon Analizi":
     st.title("📊 TEFAS Fon Analizi & Karşılaştırma")
     
-    # Checkbox for data load (Heavy operation)
-    if st.button("🔄 Verileri Güncelle / Yükle"):
+    if st.button("🔄 Verileri Güncelle"):
         st.cache_data.clear()
         
-    with st.spinner("TEFAS verileri ve analizler hazırlanıyor (Bu işlem biraz zaman alabilir)..."):
-        # Fetching all funds data with calculated metrics
+    with st.spinner("TEFAS verileri hazırlanıyor..."):
         df_funds = fetch_tefas_data()
         
     if not df_funds.empty:
-        # Layout: Tabs for different views
-        ftab1, ftab2 = st.tabs(["📋 Fon Tarama & Sıralama", "📈 Fon Karşılaştırma"])
+        ftab1, ftab2 = st.tabs(["📋 Fon Tarama", "📈 Karşılaştırma"])
         
         with ftab1:
-            st.subheader("Piyasadaki Tüm Fonlar")
-            
-            # Filters
-            col_f1, col_f2 = st.columns(2)
-            with col_f1:
-                # Search
-                search_term = st.text_input("Fon Ara (Ad veya Kod)", "").upper()
-            with col_f2:
-                # Extract unique founders/types if possible. 
-                # Since we don't scrape type specifically in the summarized fetch effectively without more calls,
-                # we will filter by text search or simplistic logic.
-                st.caption("🔍 Tablo üzerinden de sıralama yapabilirsiniz.")
-                
-            # Filtering
+            search_term = st.text_input("Fon Ara (Ad veya Kod)", "").upper()
             filtered_df = df_funds.copy()
             if search_term:
                 filtered_df = filtered_df[
@@ -558,478 +375,168 @@ elif page == "Fon Analizi":
                     filtered_df['Fon Adı'].str.upper().str.contains(search_term)
                 ]
             
-            # Display Table
             st.dataframe(
                 filtered_df.style.format({
                     "Fiyat": "{:.4f} ₺",
                     "Günlük (%)": "{:+.2f}%",
-                    "Aylık (%)": "{:+.2f}%",
-                    "YTD (%)": "{:+.2f}%",
-                    "Yıllık (%)": "{:+.2f}%",
-                    "Sharpe": "{:.2f}"
-                }).background_gradient(subset=["Aylık (%)", "Yıllık (%)", "Sharpe"], cmap="RdYlGn", vmin=-5, vmax=100),
-                use_container_width=True,
-                height=600
+                    "Yılbaşından Bugüne Getiri": "{:+.2f}%" # Sütun adı TEFAS modülünden ne geliyorsa ona dikkat edin
+                }), use_container_width=True, height=600
             )
             
         with ftab2:
-            st.subheader("Fon Performans Karşılaştırma (1 Yıl)")
-            
-            # Benchmarking
             all_codes = df_funds['Fon Kodu'].tolist()
-            default_selection = ["TCD", "MAC", "AFT"]
-            # Filter defaults to exist in list
-            default_selection = [x for x in default_selection if x in all_codes]
-            
-            selected_funds = st.multiselect("Karşılaştırılacak Fonları Seçin:", all_codes, default=default_selection)
+            default_sel = [x for x in ["TCD", "MAC", "AFT"] if x in all_codes]
+            selected_funds = st.multiselect("Karşılaştırılacak Fonlar:", all_codes, default=default_sel)
             
             if selected_funds:
-                with st.spinner("Seçilen fonların geçmiş verileri toplanıyor..."):
+                with st.spinner("Geçmiş veriler toplanıyor..."):
                     hist_df = get_fund_history(selected_funds)
-                    
                 if not hist_df.empty:
-                    st.success(f"{len(selected_funds)} fon kıyaslanıyor.")
                     fig_comp = px.line(hist_df, title="Getiri Karşılaştırması (%) - 1 Yıl")
-                    fig_comp.update_layout(template="plotly_dark", height=500, yaxis_title="Getiri (%)")
                     st.plotly_chart(fig_comp, use_container_width=True)
                 else:
-                    st.warning("Seçilen fonlar için tarihsel veri bulunamadı.")
-            else:
-                st.info("Lütfen en az bir fon seçiniz.")
-                
+                    st.warning("Veri bulunamadı.")
     else:
         st.error("TEFAS verileri çekilemedi.")
 
-# --- 4. PORTFÖY DENGELEYİCİ ---
-elif page == "Portföy Dengeleyici":
-    st.title("⚖️ Portföy Dengeleyici (Smart Rebalance)")
-    st.markdown("Yeni yatırımlarınızı hedef portföy yüzdelerinize göre otomatik olarak dağıtın.")
-
-    # 1. Mevcut Durumu Göster (GERÇEK VERİLERDEN)
-    st.subheader("Mevcut Portföy Dağılımı (Gerçek)")
-    real_portfolio = get_portfolio_by_category()
-
-    if not real_portfolio:
-        st.warning("Henüz cüzdanınızda varlık bulunmuyor. Lütfen 'Cüzdanım' sayfasından işlem ekleyin veya hedef analizi için örnek verileri kontrol edin.")
-        # Fallback to empty context or sample if requested
-        real_portfolio = {cat: 0 for cat in config.PORTFOLIO_TARGETS}
-
-    current_df = pd.DataFrame(list(real_portfolio.items()), columns=["Kategori", "Mevcut Değer (TL)"])
-    current_df["Hedef (%)"] = current_df["Kategori"].map(config.PORTFOLIO_TARGETS).fillna(0)
-
-    total_val = current_df["Mevcut Değer (TL)"].sum()
-    if total_val > 0:
-        current_df["Mevcut (%)"] = (current_df["Mevcut Değer (TL)"] / total_val * 100).round(2)
-    else:
-        current_df["Mevcut (%)"] = 0
-
-    st.table(current_df)
-    st.write(f"**Toplam Portföy Değeri:** {total_val:,.2f} ₺")
-
-    st.markdown("---")
-
-    # 2. Yeni Yatırım Girişi
-    new_investment = st.number_input("Yatırılacak Tutar (TL)", min_value=0, value=10000, step=1000)
-
-    if st.button("Hesapla"):
-        suggestions = calculate_rebalance(
-            new_investment,
-            real_portfolio,
-            config.PORTFOLIO_TARGETS
-        )
-
-        st.success("✅ Dağıtım Önerisi Hazır")
-
-        s_df = pd.DataFrame(list(suggestions.items()), columns=["Kategori", "Alınacak Tutar (TL)"])
-        fig = px.bar(s_df, x="Kategori", y="Alınacak Tutar (TL)", title="Yeni Yatırım Dağılımı")
-        fig.update_layout(template="plotly_dark")
-        st.plotly_chart(fig, use_container_width=True)
-
-        st.info(get_rebalance_summary(suggestions))
-
-        st.subheader("İşlem Detayları")
-        st.table(s_df.style.format({"Alınacak Tutar (TL)": "{:,.2f}"}))
-
-# --- 5. STRATEJİ TESTİ (BACKTEST) ---
-elif page == "Strateji Testi":
-    st.title("🧪 Strateji Testi (Backtest)")
-    st.markdown("Geçmiş veriler üzerinde stratejilerinizi test edin ve performansını ölçün.")
-
-    st.subheader("B. Geriye Dönük Test (Backtest)")
-    backtest_symbol = create_search_box("Test Edilecek Sembol", key="bt_sym")
-
-    if backtest_symbol:
-        col_b1, col_b2 = st.columns(2)
-        with col_b1:
-            initial_cap = st.number_input("Başlangıç Sermayesi ($/TL)", value=1000, step=100)
-        with col_b2:
-            strategy_choice = st.selectbox("Strateji Seçimi", ['RSI Stratejisi (30/70)', 'SMA Cross (50/200)', 'Al ve Tut', 'Smart DCA', 'Normal DCA'])
-
-        is_periodic = st.toggle("Dönemsel (Yıllık) Test")
-    monthly_dca = 0
-    if 'DCA' in strategy_choice:
-        monthly_dca = st.number_input("Aylık Alım Tutarı", value=100, step=50)
-        
-    if st.button("Simülasyonu Başlat"):
-        with st.spinner(f"{backtest_symbol} için simülasyon çalıştırılıyor..."):
-            df_hist = get_yfinance_data(backtest_symbol, period="5y") # Longer period for periodic tests
-            
-            if not df_hist.empty:
-                if is_periodic:
-                    periodic_results = run_periodic_backtest(df_hist, strategy_choice, initial_cap)
-                    if periodic_results:
-                        st.subheader("🗓️ Yıllık Performans Kıyaslaması")
-                        summary_data = []
-                        for res in periodic_results:
-                            m = res['metrics']
-                            summary_data.append({
-                                "Yıl": m['year'],
-                                "Yatırılan": m.get('total_invested', initial_cap),
-                                "Son Bakiye": m['final_equity'],
-                                "Getiri (%)": f"%{m['total_return_pct']}"
-                            })
-                        st.table(summary_data)
-                        
-                        # Multi-year chart (Just show the combined curve or first/last?)
-                        # For simplicity, we'll show the combined metrics in a bar chart
-                        perf_df = pd.DataFrame(summary_data)
-                        perf_df["Getiri Sayısal"] = perf_df["Getiri (%)"].str.replace('%', '').astype(float)
-                        fig_p = px.bar(perf_df, x="Yıl", y="Getiri Sayısal", title="Yıllara Göre Getiri (%)")
-                        st.plotly_chart(fig_p, use_container_width=True)
-                else:
-                    results = run_backtest(df_hist, strategy_choice, initial_cap, monthly_dca=monthly_dca)
-                    if results:
-                        metrics = results['metrics']
-                        equity_df = results['equity_curve']
-                        
-                        m_col1, m_col2, m_col3 = st.columns(3)
-                        m_col1.metric("Toplam Getiri", f"%{metrics['total_return_pct']}", delta=f"{metrics['total_return_pct']}%")
-                        m_col2.metric("Son Bakiye", f"{metrics['final_equity']:,} {config.SYMBOLS.get('currency', '₺')}")
-                        m_col3.metric("Yatırılan Toplam", metrics.get('total_invested', initial_cap))
-                        
-                        st.markdown("---")
-                        
-                        st.subheader("Performans Grafiği")
-                        fig_bt = px.line(equity_df, y=['Strategy_Equity', 'BuyHold_Equity'], 
-                                       labels={"value": "Sermaye Değeri", "index": "Tarih"},
-                                       title=f"{backtest_symbol} için {strategy_choice} Performansı")
-                        fig_bt.update_layout(template="plotly_dark", height=500)
-                        st.plotly_chart(fig_bt, use_container_width=True)
-                        
-                        if 'DCA' in strategy_choice:
-                            st.info("💡 Smart DCA: Fiyat SMA200 altındaysa 1.5x, RSI > 80 ise 0.5x alım yapar.")
-                    else:
-                        st.error("Simülasyon sırasında hata oluştu.")
-            else:
-                st.warning(f"{backtest_symbol} için yeterli veri bulunamadı.")
-
-# --- 6. CÜZDANIM (PORTFOLIO) ---
-# --- 6. CÜZDANIM (PORTFOLIO PRO) ---
+# --- 4. PORTFÖYÜM ---
 elif page == "Portföyüm":
     if st.session_state.guest_mode:
-        st.error("Bu sayfaya erişim yetkiniz yok.")
+        st.error("Misafir kullanıcılar portföy özelliğini kullanamaz. Lütfen giriş yapın.")
     else:
         st.title("📱 Portföyüm")
-        
-        # Get Current User Email
-        user_email = st.session_state.user_info.get('email') if st.session_state.user_info else "guest"
+        user_email = st.session_state.user_email
     
-        # Fetch Data
-        with st.spinner("Portföy verileri hazırlanıyor..."):
+        with st.spinner("Cüzdan verileri çekiliyor..."):
             holdings = get_portfolio_balance(user_email)
-            
-            # Calculate Total Values
             total_tl = sum([h['total_value_tl'] for h in holdings]) if holdings else 0
+            # Basit USD çevrimi
+            total_usd = total_tl / 36.5 
             
-            # USD Conversion (Simple)
-            usd_rate = 35.0
-            try:
-                # Assuming market_data might be available globally or re-fetch
-                usd_curr = yf.Ticker("TRY=X").history(period="1d")
-                if not usd_curr.empty:
-                    usd_rate = usd_curr['Close'].iloc[-1]
-            except:
-                pass
-            total_usd = total_tl / usd_rate
-            
-            # Historical Data for Chart
-            from portfolio_manager import get_benchmark_data, get_portfolio_history
+            # Tarihsel veriyi al (Grafik için)
+            from portfolio_manager import get_portfolio_history
             port_history = get_portfolio_history(holdings, period="1y") if holdings else None
             
-        # --- KATMAN 1: Özet ve Görselleştirme ---
+        # Üst Bilgi Kartları
+        c1, c2 = st.columns(2)
+        c1.metric("Toplam Varlık (TL)", f"₺{total_tl:,.2f}")
+        c2.metric("Toplam Varlık (USD)", f"${total_usd:,.2f}")
         
-        # 1. Total Metrics (Big)
-        row1_col1, row1_col2 = st.columns(2)
-        with row1_col1:
-             st.markdown(f"""
-             <div style="text-align: center;">
-                 <p style="margin:0; color:#888; font-size: 14px;">Toplam Varlık (TL)</p>
-                 <h1 style="margin:0; font-size: 36px; color: #4CAF50;">₺{total_tl:,.2f}</h1>
-             </div>
-             """, unsafe_allow_html=True)
-             
-        with row1_col2:
-            st.markdown(f"""
-             <div style="text-align: center;">
-                 <p style="margin:0; color:#888; font-size: 14px;">Toplam Varlık (USD)</p>
-                 <h1 style="margin:0; font-size: 36px; color: #2196F3;">${total_usd:,.2f}</h1>
-             </div>
-             """, unsafe_allow_html=True)
+        st.markdown("---")
         
-        st.write("")
-        
-        # 2. Charts (Line + Donut)
-        c_chart1, c_chart2 = st.columns([2, 1])
-        
-        with c_chart1:
+        # Grafikler
+        col_g1, col_g2 = st.columns([2, 1])
+        with col_g1:
             if port_history is not None and not port_history.empty:
-                fig_l = px.area(port_history, title="Portföy Değişim Grafiği (TL)", labels={"value": "Değer", "index": "Tarih"})
-                fig_l.update_layout(template="plotly_dark", height=300, showlegend=False, margin=dict(l=0, r=0, t=30, b=0))
+                fig_l = px.area(port_history, title="Portföy Değerimi (TL)")
+                fig_l.update_layout(template="plotly_dark", height=350)
                 st.plotly_chart(fig_l, use_container_width=True)
             else:
-                st.info("Grafik için yeterli veri yok.")
-                
-        with c_chart2:
+                st.info("Zaman grafiği için yeterli veri yok.")
+        
+        with col_g2:
             if holdings:
                 df_h = pd.DataFrame(holdings)
-                fig_d = px.pie(df_h, values='total_value_tl', names='symbol', hole=0.4, title="Dağılım")
-                fig_d.update_layout(template="plotly_dark", height=300, showlegend=False, margin=dict(l=0, r=0, t=30, b=0))
+                fig_d = px.pie(df_h, values='total_value_tl', names='symbol', title="Varlık Dağılımı", hole=0.4)
+                fig_d.update_layout(template="plotly_dark", height=350)
                 st.plotly_chart(fig_d, use_container_width=True)
-    
-        st.markdown("---")
-        
-        # --- KATMAN 2: Varlık Listesi (Kart Görünümü) ---
-        st.subheader("📋 Varlıklarınız")
-        
-        if holdings:
-            for h in holdings:
-                # Color for P/L
-                pl_color = "#4CAF50" if h['profit_tl'] >= 0 else "#FF5252"
                 
-                with st.container():
-                    # Card-like layout
-                    cc1, cc2, cc3, cc4, cc5 = st.columns([1, 1, 1, 1, 1])
-                    
-                    cc1.markdown(f"**{h['symbol']}**")
-                    cc2.caption("Fiyat")
-                    cc2.write(f"{h['current_price_tl']:.2f}")
-                    
-                    cc3.caption("Adet")
-                    cc3.write(f"{h['quantity']}")
-                    
-                    cc4.caption("Değer")
-                    cc4.write(f"{h['total_value_tl']:,.0f}")
-                    
-                    cc5.caption("K/Z")
-                    cc5.markdown(f"<span style='color:{pl_color}; font-weight:bold;'>{h['profit_tl']:,.0f} ({h['profit_pct']:.1f}%)</span>", unsafe_allow_html=True)
-                    
-                    st.markdown("<hr style='margin:5px 0; opacity:0.2;'>", unsafe_allow_html=True)
-        else:
-            st.info("Portföyünüz boş.")
-    
-        st.markdown("---")
-    
-        # --- KATMAN 3: Sekmeli Analiz ---
-        tab1, tab2, tab3 = st.tabs(["📊 Detaylı Analiz", "📈 Kıyaslama", "➕ İşlemler"])
+        # Varlık Listesi ve İşlemler
+        tab_list, tab_trans = st.tabs(["📋 Varlıklarım", "➕ İşlem Ekle"])
         
-        with tab1:
+        with tab_list:
             if holdings:
-                st.caption("Detaylı Portföy Tablosu")
-                # Create Detailed DF
-                detailed_data = []
-                for h in holdings:
-                    weight = (h['total_value_tl'] / total_tl) * 100 if total_tl > 0 else 0
-                    detailed_data.append({
-                        "Varlık": h['symbol'],
-                        "Ağırlık (%)": f"%{weight:.1f}",
-                        "Ort. Maliyet": f"{h['avg_cost']:.2f}",
-                        "Güncel Fiyat": f"{h['current_price_tl']:.2f}",
-                        "Toplam Değer": f"{h['total_value_tl']:,.2f}",
-                        "Kar/Zarar": f"{h['profit_tl']:,.2f}"
-                    })
-                st.dataframe(pd.DataFrame(detailed_data), use_container_width=True)
-        
-        with tab2:
-            st.subheader("Endekslerle Performans Kıyaslaması (1 Yıl)")
-            
-            # Custom Competitor Input
-            custom_comp = create_search_box("VS Özel Rakip Ekle", key="bench_sym")
-            
-            if port_history is not None:
-    
-                with st.spinner("Benchmark verileri çekiliyor..."):
-                    bench_df = get_benchmark_data(period="1y", custom_ticker=custom_comp if custom_comp else None)
-                    
-                if not bench_df.empty:
-                    # Merge Portfolio History
-                    # Normalize all to start at 0%
-                    
-                    merged = bench_df.copy()
-                    merged["Portföyüm"] = port_history
-                    
-                    # Align dates (intersection)
-                    merged = merged.ffill().dropna()
-                    
-                    if not merged.empty:
-                        # Normalize: (Price / StartPrice - 1) * 100
-                        norm_df = merged.apply(lambda x: ((x / x.iloc[0]) - 1) * 100)
-                        
-                        fig_bm = px.line(norm_df, title="Getiri Karşılaştırması (%)")
-                        fig_bm.update_layout(template="plotly_dark", height=400)
-                        st.plotly_chart(fig_bm, use_container_width=True)
-                    else:
-                        st.warning("Tarih eşleşmesi yapılamadı.")
-                else:
-                    st.warning("Benchmark verisi alınamadı.")
-        
-        with tab3:
-            st.subheader("İşlem Ekle / Çıkar")
-            with st.form("transaction_form_new", clear_on_submit=True):
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    t_date = st.date_input("İşlem Tarihi")
-                    t_symbol = create_search_box("Hisse Sembolü", key="trans_sym")
-                with col2:
-                    t_type = st.selectbox("İşlem Türü", ["BUY", "SELL"])
-                    t_qty = st.number_input("Adet", min_value=0.01, step=1.0)
-                with col3:
-                    t_price = st.number_input("Fiyat", min_value=0.01, step=0.1)
-                    submitted = st.form_submit_button("💾 Kaydet")
-                    
-                if submitted:
-                     if t_symbol:
-                        add_transaction(t_date.strftime("%Y-%m-%d"), t_symbol, t_type, t_qty, t_price, user_email)
-                        st.success("İşlem kaydedildi! Veriler güncelleniyor...")
+                df_disp = pd.DataFrame(holdings)
+                st.dataframe(
+                    df_disp[['symbol', 'quantity', 'avg_cost', 'current_price_tl', 'total_value_tl', 'profit_tl', 'profit_pct']]
+                    .style.format({"total_value_tl": "{:,.2f}", "profit_tl": "{:,.2f}", "profit_pct": "{:.2f}%"}),
+                    use_container_width=True
+                )
+            else:
+                st.info("Henüz portföyünüzde varlık yok.")
+                
+        with tab_trans:
+            with st.form("add_trans"):
+                c_t1, c_t2, c_t3 = st.columns(3)
+                t_sym = c_t1.text_input("Sembol (Örn: THYAO.IS)").upper()
+                t_type = c_t2.selectbox("İşlem", ["BUY", "SELL"])
+                t_date = c_t3.date_input("Tarih")
+                
+                c_t4, c_t5 = st.columns(2)
+                t_qty = c_t4.number_input("Adet", min_value=0.01)
+                t_price = c_t5.number_input("Fiyat", min_value=0.01)
+                
+                if st.form_submit_button("Kaydet"):
+                    if t_sym:
+                        add_transaction(t_date.strftime("%Y-%m-%d"), t_sym, t_type, t_qty, t_price, user_email)
+                        st.success("İşlem eklendi!")
                         time.sleep(1)
                         st.rerun()
-                     else:
+                    else:
                         st.error("Sembol giriniz.")
-            
-            # History Table
-            st.subheader("Geçmiş İşlemler")
-            history = get_all_transactions(user_email)
-            if not history.empty:
-                st.dataframe(history.drop(columns=['id', 'user_email'], errors='ignore'), use_container_width=True, height=200)
 
-# --- 7. GÖLGE PORTFÖY (KALDIRILDI) ---
-# elif page == "👻 Gölge Portföy":
-#     st.title("👻 Gölge Portföy")
-    st.markdown("Botun kendi kendine yaptığı sanal işlemleri ve performansını takip edin.")
+# --- 5. PORTFÖY DENGELEYİCİ ---
+elif page == "Portföy Dengeleyici":
+    st.title("⚖️ Portföy Dengeleyici")
     
-    # Metrics
-    balance = paper_trader.get_virtual_balance()
-    initial_balance = 100000.0
-    total_profit = balance - initial_balance
-    profit_pct = (total_profit / initial_balance) * 100
+    # Gerçek portföy verisini çek
+    user_email_bal = st.session_state.user_email
+    real_portfolio = get_portfolio_by_category(user_email_bal) if not st.session_state.guest_mode else {}
     
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Sanal Bakiye", f"{balance:,.2f} ₺")
-    c2.metric("Toplam Kar/Zarar", f"{total_profit:,.2f} ₺", delta=f"{profit_pct:.2f}%")
-    c3.info(f"Bot Stratejisi: \n- Teknik Puan > 80: AL \n- Teknik Puan < 40: SAT")
+    # Eğer portföy boşsa varsayılan
+    if not real_portfolio:
+        real_portfolio = {k: 0 for k in config.PORTFOLIO_TARGETS.keys()}
+        if not st.session_state.guest_mode:
+            st.warning("Portföyünüz boş olduğu için hesaplama 0 bakiye üzerinden yapılacak.")
+
+    new_investment = st.number_input("Yatırılacak Yeni Tutar (TL)", value=10000, step=1000)
     
-    st.markdown("---")
-    
-    # Bot Control
-    st.subheader("🤖 Bot Kontrol Merkezi")
-    force_bot = st.toggle("🧪 Test Modu (Sinyal gelmese de ilk hisseyi al/sat)")
-    
-    if st.button("Botu Çalıştır (Piyasayı Tara & İşlem Yap)"):
-        # Sample scanning list (can be expanded)
-        scan_list = ["THYAO", "EREGL", "ASELS", "SISE", "AKBNK", "KCHOL", "TUPRS", "SAHOL", "BIMAS"]
-        logs = paper_trader.run_paper_bot(scan_list, force_trade=force_bot)
+    if st.button("Dağılımı Hesapla"):
+        suggestions = calculate_rebalance(new_investment, real_portfolio, config.PORTFOLIO_TARGETS)
         
-        if logs:
-            st.success(f"İşlem özeti: {len(logs)} aksiyon alındı.")
-        
-        # We don't need a rerun here because the bot function already updated the UI 
-        # but a rerun helps refreshing the metrics/tables below.
-        st.button("Verileri Yenile")
+        s_df = pd.DataFrame(list(suggestions.items()), columns=["Kategori", "Alınacak Tutar"])
+        fig = px.bar(s_df, x="Kategori", y="Alınacak Tutar", title="Önerilen Alımlar")
+        st.plotly_chart(fig, use_container_width=True)
+        st.table(s_df)
 
-    st.markdown("---")
+# --- 6. STRATEJİ TESTİ ---
+elif page == "Strateji Testi":
+    st.title("🧪 Strateji Testi (Backtest)")
     
-    # Open Positions
-    st.subheader("📦 Açık Pozisyonlar")
-    open_pos = paper_trader.get_open_paper_positions()
-    if open_pos:
-        pos_list = []
-        for sym, qty in open_pos.items():
-            try:
-                yf_sym = sym if "." in sym or "-" in sym else sym + ".IS"
-                curr_price = yf.Ticker(yf_sym).history(period="1d")['Close'].iloc[-1]
-                pos_list.append({"Sembol": sym, "Adet": round(qty, 2), "Güncel Fiyat": round(curr_price, 2)})
-            except:
-                pos_list.append({"Sembol": sym, "Adet": round(qty, 2), "Güncel Fiyat": "---"})
-        st.table(pos_list)
-    else:
-        st.info("Henüz bot tarafından açılmış bir sanal pozisyon bulunmuyor.")
+    sym = st.text_input("Sembol (Örn: THYAO.IS)", "THYAO.IS").upper()
+    capital = st.number_input("Başlangıç Sermayesi", value=10000)
+    strategy = st.selectbox("Strateji", ['RSI Stratejisi (30/70)', 'SMA Cross (50/200)', 'Al ve Tut'])
+    
+    if st.button("Testi Başlat"):
+        with st.spinner("Simülasyon çalışıyor..."):
+            df_hist = get_yfinance_data(sym, period="5y")
+            if not df_hist.empty:
+                results = run_backtest(df_hist, strategy, capital)
+                
+                if results:
+                    metrics = results['metrics']
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Toplam Getiri", f"%{metrics['total_return_pct']:.2f}")
+                    c2.metric("Son Bakiye", f"{metrics['final_equity']:,.2f}")
+                    
+                    st.line_chart(results['equity_curve']['Strategy_Equity'])
+                else:
+                    st.error("Test hatası.")
+            else:
+                st.error("Veri bulunamadı.")
 
-    # History
-    st.subheader("📜 Bot İşlem Geçmişi")
-    history = paper_trader.get_paper_history()
-    if not history.empty:
-        st.dataframe(history.drop(columns=['id']), use_container_width=True)
-    else:
-        st.write("Henüz bir işlem kaydı yok.")
-
-# --- 8. RAPORLAR (BENCHMARK) ---
+# --- 7. RAPORLAR ---
 elif page == "Raporlar":
     st.title("📊 Kıyaslamalı Performans Raporu")
-    st.markdown(f"Varlıkların son 1 yıllık performansı (Enflasyon Beklentisi: %{config.ANNUAL_INFLATION_RATE})")
     
-    with st.spinner("Benchmark verileri çekiliyor..."):
-        benchmark_df = get_benchmark_data()
+    with st.spinner("Benchmark verileri hazırlanıyor..."):
+        bench_df = get_benchmark_data()
         
-    if not benchmark_df.empty:
-        summary = get_benchmark_summary(benchmark_df)
+    if not bench_df.empty:
+        summary = get_benchmark_summary(bench_df)
+        st.table(pd.DataFrame(summary).T)
         
-        # Display Metrics in a Table for clarity
-        report_table = []
-        for asset, stats in summary.items():
-            report_table.append({
-                "Varlık": asset,
-                "Nominal Getiri (%)": stats['nominal'],
-                "Reel Getiri (%)": stats['real'],
-                "Sharpe Oranı": stats['sharpe']
-            })
-        
-        st.table(pd.DataFrame(report_table))
-            
-        st.markdown("---")
-        
-        fig = px.line(benchmark_df, title="Son 1 Yıl Performans Kıyaslaması (Baz 100)",
-                     labels={"value": "Endeks Değeri", "index": "Tarih"})
-        fig.update_layout(template="plotly_dark", height=600)
+        fig = px.line(bench_df, title="Son 1 Yıl Performans (Baz 100)")
         st.plotly_chart(fig, use_container_width=True)
-        
-        st.info(f"💡 Sharpe Oranı > 1.0 olması risk başına alınan getirinin tatminkar olduğunu gösterir. Reel getiri %{config.ANNUAL_INFLATION_RATE} enflasyon düşüldükten sonra kalan net kazançtır.")
     else:
-        st.error("Benchmark verileri alınamadı.")
-
-# --- 8. BİLGİ NOTU ---
-elif page == "Bilgi Notu":
-    st.title("📝 Günlük Bilgi Notu & Takvim")
-    
-    cal_filter = st.selectbox("Takvim Filtresi", ["Türkiye (TR)", "ABD (US)", "Global (All)"])
-    filter_map = {"Türkiye (TR)": "TR", "ABD (US)": "US", "Global (All)": "ALL"}
-    
-    data = get_market_summary(calendar_country=filter_map[cal_filter])
-    
-    st.subheader("Tahvil Piyasası")
-    b_col1, b_col2 = st.columns(2)
-    b_col1.metric("TR 2 Yıllık Tahvil", f"%{data['bond_2y'] or '---'}")
-    b_col2.metric("TR 10 Yıllık Tahvil", f"%{data['bond_10y'] or '---'}")
-    
-    st.sidebar.markdown("### Hedef Portföy")
-    for category, percentage in config.PORTFOLIO_TARGETS.items():
-        st.sidebar.write(f"- {category}: %{percentage}")
-
-    st.info("Mevduat Faizi (Ortalama/Tahmini): %45-50 seviyelerinde")
-    
-    st.subheader(f"📅 Ekonomik Takvim ({cal_filter})")
-    cal = data['calendar']
-    if cal is not None and not cal.empty:
-        disp_cols = ['Date', 'Time', 'Event', 'Actual', 'Forecast', 'Previous']
-        final_cols = [c for c in disp_cols if c in cal.columns]
-        st.dataframe(cal[final_cols], use_container_width=True)
-    else:
-        st.write("Seçilen filtre için önemli bir veri akışı bulunmuyor.")
+        st.error("Veri alınamadı.")
