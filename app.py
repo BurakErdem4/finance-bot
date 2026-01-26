@@ -243,34 +243,38 @@ st.sidebar.markdown("---")
 
 # 📧 Manuel Raporlama (Test)
 st.sidebar.subheader("🚀 Hızlı Gönderim (Test)")
-# 🚀 Hızlı Gönderim (DÜZELTİLMİŞ v2)
-target_email_input = st.sidebar.text_input("Hedef Email", placeholder="Boş bırakırsanız: " + (st.session_state.get('user_email') if st.session_state.get('user_email') else "Tanımsız"), help="Boş bırakırsanız kayıtlı mailinize gönderilir.")
+# --- Hızlı Gönderim (DÜZELTİLMİŞ) ---
+st.sidebar.subheader("🚀 Hızlı Gönderim (Test)")
+
+# 1. Kutuyu Çiz (Varsayılan değer boş olsun)
+hint = st.session_state.get('user_email') if st.session_state.get('logged_in') else "E-posta girin..."
+target_input = st.sidebar.text_input("Hedef Email", placeholder=hint, help="Boş bırakırsanız otomatik olarak kayıtlı adresinize gönderilir.")
 
 if st.sidebar.button("Raporu Bana Şimdi Gönder"):
-    # 1. Hedef Belirleme
-    final_email = target_email_input
-    
-    # Eğer input boşsa VE kullanıcı giriş yapmışsa (misafir değilse)
-    if not final_email:
-        if st.session_state.get('logged_in', False) and not st.session_state.get('guest_mode', False):
-            final_email = st.session_state.get('user_email')
+    # 2. Hedef Belirleme Mantığı (KRİTİK KISIM)
+    # Önce kutuya bak, doluysa onu kullan.
+    # Boşsa ve kullanıcı giriş yapmışsa, sistemdeki maili kullan.
+    final_target = target_input if target_input else st.session_state.get('user_email')
 
-    # 2. Kontrol ve Gönderim
-    if not final_email:
-        st.sidebar.error("Lütfen bir e-posta adresi girin.")
+    # 3. Son Kontrol (Sadece Misafirler için zorunlu)
+    if not final_target:
+        st.sidebar.error("Misafir girişi yaptığınız için lütfen bir e-posta adresi belirtin.")
     else:
-        with st.spinner(f"Rapor hazırlanıyor: {final_email}..."):
+        # 4. Gönderim
+        with st.sidebar.status(f"Rapor hazırlanıyor...", expanded=True) as status:
             try:
-                # Fonksiyonu çağır ve sonuçları al
-                send_success, send_message = send_newsletter(final_email, "Günlük")
+                status.write(f"Hedef: {final_target}")
+                success, msg = send_newsletter(final_target, "Günlük")
                 
-                # Sonucu DEĞERLENDİR
-                if send_success:
-                    st.sidebar.success(f"✅ Rapor {final_email} adresine gönderildi")
+                if success:
+                    status.update(label="✅ Gönderildi!", state="complete", expanded=False)
+                    st.sidebar.success(f"Rapor şuraya yollandı:\n{final_target}")
                 else:
-                    st.sidebar.error(f"Hata: {send_message}")
+                    status.update(label="Gönderim Başarısız", state="error")
+                    st.sidebar.error(f"Hata: {msg}")
             except Exception as e:
-                st.sidebar.error(f"Beklenmedik hata: {str(e)}")
+                status.update(label="Hata", state="error")
+                st.sidebar.error(f"Sistem Hatası: {str(e)}")
 
 
 
