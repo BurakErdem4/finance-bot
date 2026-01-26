@@ -465,6 +465,23 @@ elif page == "Hisse Tarama":
                     if val == -1 or val is None: return "Veri Yok"
                     return f"{val:.2f}"
                 
+                def valuation_color(val):
+                    """
+                    Finansal Renklendirme:
+                    - Negatif (<0): Kırmızı (Zarar/Kötü)
+                    - Ucuz (0-8): Yeşil (İyi)
+                    - Pahalı (>15): Turuncu
+                    """
+                    if not isinstance(val, (int, float)):
+                        return ''
+                    if val < 0:
+                        return 'color: #FF5252' # Red
+                    elif 0 < val < 8:
+                        return 'color: #4CAF50' # Green
+                    elif val > 15:
+                        return 'color: orange'
+                    return ''
+                
                 df_display = df_bist.copy()
                 df_display['PD/DD'] = df_display['PD/DD'].apply(lambda x: x if x != -1 else None)
                 df_display['FD/FAVÖK'] = df_display['FD/FAVÖK'].apply(lambda x: x if x != -1 else None)
@@ -477,7 +494,7 @@ elif page == "Hisse Tarama":
                         "PD/DD": "{:.2f}",
                         "FD/FAVÖK": "{:.2f}"
                     }, na_rep="-")
-                    .background_gradient(subset=["PD/DD", "FD/FAVÖK"], cmap="RdYlGn_r", vmin=0, vmax=10)
+                    .map(valuation_color, subset=["PD/DD", "FD/FAVÖK"])
                     .map(lambda x: f"color: {'green' if x > 0 else 'red'}", subset=["Günlük (%)"]), 
                     use_container_width=True,
                     height=600
