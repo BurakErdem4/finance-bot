@@ -25,38 +25,36 @@ def fetch_tefas_data():
         # Expected by app: "Fon Kodu", "Fon Adı", "Fiyat", "Günlük (%)", "Aylık (%)", "YTD (%)", "Yıllık (%)", "Sharpe"
         # Borsapy likely English columns: code, title, price, return_1m, etc.
         
-        col_map = {
-            "code": "Fon Kodu",
-            "title": "Fon Adı",
-            "price": "Fiyat",
-            "return_Daily": "Günlük (%)", # Guessing case
-            "return_daily": "Günlük (%)",
-            "daily_return": "Günlük (%)",
-            "return_1m": "Aylık (%)",
-            "return_ytd": "YTD (%)", 
-            "return_1y": "Yıllık (%)",
-            "sharpe": "Sharpe"
+        # Rename columns to match app.py expectations using strict mapping
+        column_mapping = {
+            'fund_code': 'Fon Kodu',
+            'name': 'Fon Adı',
+            'price': 'Fiyat',
+            'return_1m': 'Aylık (%)',
+            'return_3m': '3 Aylık (%)',
+            'return_6m': '6 Aylık (%)',
+            'return_1y': 'Yıllık (%)',
+            'return_ytd': 'YTD (%)'
         }
         
-        # Normalize columns to lower case for matching if needed, but let's try direct map first
-        # To be safe, let's copy and rename available columns
-        df = df.rename(columns=col_map)
+        # Apply renaming
+        df = df.rename(columns=column_mapping)
         
-        # Fill missing columns with 0 or NaN if they don't exist in source, to prevent app crash
-        expected_cols = ["Fon Kodu", "Fon Adı", "Fiyat", "Günlük (%)", "Aylık (%)", "YTD (%)", "Yıllık (%)", "Sharpe"]
-        for col in expected_cols:
+        # Ensure 'Sharpe' column exists if possible (borsapy might call it 'sharpe_ratio' or 'sharpe')
+        # If not in mapping, we check loosely
+        if 'sharpe' in df.columns:
+            df = df.rename(columns={'sharpe': 'Sharpe'})
+        elif 'sharpe_ratio' in df.columns:
+            df = df.rename(columns={'sharpe_ratio': 'Sharpe'})
+            
+        # Fill missing numeric columns to prevent app errors
+        expected_numeric = ["Fiyat", "Günlük (%)", "Aylık (%)", "YTD (%)", "Yıllık (%)", "Sharpe"]
+        for col in expected_numeric:
             if col not in df.columns:
-                # Try to find it loosely
-                # If "Günlük (%)" missing, maybe "return_1d" exists?
-                pass 
-                # We won't error out, just let it be missing or add as None
-                # df[col] = 0.0 
-        
-        # Ensure numeric columns are numeric
-        numeric_cols = ["Fiyat", "Günlük (%)", "Aylık (%)", "YTD (%)", "Yıllık (%)", "Sharpe"]
-        for col in numeric_cols:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                 # Initialize with 0 if missing (e.g. Daily might not be available in screen)
+                 df[col] = 0.0
+            else:
+                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
                 
         return df
 

@@ -556,61 +556,37 @@ elif page == "Fon Analizi":
                 st.caption("🔍 Tablo üzerinden de sıralama yapabilirsiniz.")
                 
             # Filtering
-            # Filtering (Robust)
-            # Find closest match for Code/Name columns
-            code_col = "Fon Kodu" if "Fon Kodu" in df_funds.columns else "code"
-            name_col = "Fon Adı" if "Fon Adı" in df_funds.columns else "title" # or 'name'
-            
-            if name_col not in df_funds.columns and 'name' in df_funds.columns: name_col = 'name'
-
             filtered_df = df_funds.copy()
-            if search_term and code_col in filtered_df.columns and name_col in filtered_df.columns:
+            if search_term:
                 filtered_df = filtered_df[
-                    filtered_df[code_col].str.contains(search_term) | 
-                    filtered_df[name_col].str.upper().str.contains(search_term)
+                    filtered_df['Fon Kodu'].str.contains(search_term) | 
+                    filtered_df['Fon Adı'].str.upper().str.contains(search_term)
                 ]
-            elif search_term:
-                st.warning("Arama yapılamadı: Sütun isimleri eşleşmedi.")
             
             # Display Table
-            # Display Table (Robust)
-            # Check available columns to prevent crash
-            avail_cols = filtered_df.columns.tolist()
-            
-            # Prepare Formatters safe
-            format_dict = {}
-            grad_subset = []
-            
-            # Map standard columns if they exist
-            if "Fiyat" in avail_cols: format_dict["Fiyat"] = "{:.4f} ₺"
-            
-            # Returns
-            for col in ["Günlük (%)", "Aylık (%)", "YTD (%)", "Yıllık (%)"]:
-                if col in avail_cols:
-                    format_dict[col] = "{:+.2f}%"
-                    grad_subset.append(col)
-                    
-            if "Sharpe" in avail_cols:
-                format_dict["Sharpe"] = "{:.2f}"
-                grad_subset.append("Sharpe")
-                
-            # Fallback for English columns if migration map failed (User Request)
-            # "Eğer borsapy sütun isimleri İngilizce geliyorsa... column_config ile maple."
-            col_config = {
-                "return_1m": st.column_config.NumberColumn("1 Ay Getiri", format="%.2f%%"),
-                "return_ytd": st.column_config.NumberColumn("YTD Getiri", format="%.2f%%"),
-                "price": st.column_config.NumberColumn("Fiyat", format="%.4f ₺"),
-                "sharpe": st.column_config.NumberColumn("Sharpe", format="%.2f")
+            # Prepare Formatters
+            format_dict = {
+                "Fiyat": "{:.4f} ₺",
+                "Günlük (%)": "{:+.2f}%",
+                "Aylık (%)": "{:+.2f}%",
+                "YTD (%)": "{:+.2f}%",
+                "Yıllık (%)": "{:+.2f}%",
+                "Sharpe": "{:.2f}"
             }
-            
+
             # Apply Styer
-            styler = filtered_df.style.format(format_dict)
+            styler = filtered_df.style.format(format_dict, na_rep="-")
+            
+            # Gradient for performance columns
+            grad_cols = ["Aylık (%)", "Yıllık (%)", "Sharpe", "YTD (%)"]
+            # Check availability just in case
+            grad_subset = [c for c in grad_cols if c in filtered_df.columns]
+            
             if grad_subset:
                styler = styler.background_gradient(subset=grad_subset, cmap="RdYlGn", vmin=-5, vmax=100)
 
             st.dataframe(
                 styler,
-                column_config=col_config,
                 use_container_width=True,
                 height=600
             )
