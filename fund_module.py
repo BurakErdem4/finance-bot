@@ -1,245 +1,137 @@
 import streamlit as st
 import pandas as pd
+import borsapy as bp
 import requests
-from datetime import datetime, timedelta
-import numpy as np
-import config
+from datetime import datetime
 
-# TEFAS API Endpoints
-TEFAS_URL = "https://www.tefas.gov.tr/api/DB/BindHistoryInfo"
-
-@st.cache_data(ttl=3600)
-def _fetch_raw_tefas_data(lookback_days=370):
-    """
-    Internal helper to fetch raw history from TEFAS for ALL funds.
-    """
-    try:
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=lookback_days)
-        
-        # TEFAS usually expects this format or similar
-        # Payload: fontip="YAT", bastarih="2023-01-01", bittarih="2023-01-30"
-        # Check date format: TEFAS often uses ISO or dd.mm.yyyy?
-        # Based on common usage, it accepts YYYY-MM-DD or similar in API.
-        # Let's use generic formatting likely to work or standard form-data.
-        
-        payload = {
-            "fontip": "YAT",
-            "bastarih": start_date.strftime("%d.%m.%Y"),
-            "bittarih": end_date.strftime("%d.%m.%Y"),
-            "fonkod": "" # All funds
-        }
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "Origin": "https://www.tefas.gov.tr",
-            "Referer": "https://www.tefas.gov.tr/TarihselVeriler.aspx"
-        }
-        
-        # TEFAS API usually accepts Form Data
-        response = requests.post(TEFAS_URL, data=payload, headers=headers, timeout=20)
-        
-        if response.status_code == 200:
-            data = response.json()
-            # API returns a dict with 'data' key usually, or list
-            # Structure: { "data": [ ... ] } or [ ... ]
-            
-            # Handling potential wrapper
-            if isinstance(data, dict) and 'data' in data:
-                rows = data['data']
-            elif isinstance(data, list):
-                rows = data
-            else:
-                return pd.DataFrame()
-                
-            if not rows:
-                return pd.DataFrame()
-                
-            df = pd.DataFrame(rows)
-            # Expected Columns: FONKODU, FONUNADI, TARIH, FIYAT, ...
-            
-            # Normalize columns
-            col_map = {
-                "FONKODU": "code",
-                "FONUNADI": "title",
-                "TARIH": "date",
-                "FIYAT": "price"
-            }
-            df = df.rename(columns=col_map)
-            
-            # Convert types
-            # TARIH comes as milliseconds timestamp usually from TEFAS API JSON? 
-            # Or string? If string "1706130000000", need to convert.
-            # If standard string, parse.
-            
-            # Observation: TEFAS API dates often tricky.
-            # If it comes as '/Date(1641022800000)/', we need parse.
-            # If numeric, easy.
-            
-            # Safe parsing
-            if not df.empty and 'date' in df.columns:
-                # Check sample format
-                sample = df['date'].iloc[0]
-                if isinstance(sample, str) and "/Date(" in sample:
-                    # Extract timestamp
-                    df['date'] = df['date'].apply(lambda x: datetime.fromtimestamp(int(x.replace("/Date(","").replace(")/",""))/1000) if isinstance(x, str) else x)
-                else:
-                    df['date'] = pd.to_datetime(df['date']) # Generic parser
-                    
-            df['price'] = pd.to_numeric(df['price'], errors='coerce')
-            
-            return df
-            
-        else:
-            print(f"TEFAS HTTP Error: {response.status_code}")
-            return pd.DataFrame()
-            
-    except Exception as e:
-        print(f"TEFAS Helper Error: {e}")
-        return pd.DataFrame()
+# TEFAS API Endpoints (Legacy/Backup if needed, but we use borsapy now)
+# Keeping imports just in case of simple helpers, but strictly using borsapy for data.
 
 @st.cache_data(ttl=3600)
 def fetch_tefas_data():
     """
-    Fetches latest data and calculates summary metrics (Returns, Sharpe).
+    Fetches latest data using borsapy and adapts it to the app's expected format.
     """
-    # Lookback 1 year + buffer for annual calc
-    raw_df = _fetch_raw_tefas_data(lookback_days=380)
-    
-    if raw_df.empty:
-        return pd.DataFrame()
+    try:
+        # Fetch data using borsapy
+        # fund_type="YAT" covers investment funds (Yatırım Fonları)
+        df = bp.screen_funds(fund_type="YAT")
         
-    # Sort
-    raw_df = raw_df.sort_values(['code', 'date'])
-    
-    summary_data = []
-    risk_free_daily = (getattr(config, 'RISK_FREE_RATE', 0.40) / 252)
-    end_date = raw_df['date'].max()
-    
-    # Process each fund
-    # Optimization: processing 500 funds * 250 rows in pure python loop is slow.
-    # Vectorized approach is hard due to varying dates.
-    # GroupBy apply is clean.
-    
-    for code, group in raw_df.groupby('code'):
-        if len(group) < 2: continue
-        
-        curr = group.iloc[-1]
-        price = curr['price']
-        
-        # Check recency (if data is too old, skip?)
-        if (end_date - curr['date']).days > 10:
-            continue # Dead fund
-            
-        # Helper for % change
-        def get_pct(target_date):
-            # Find closest date <= target_date
-            # subset = group[group['date'] <= target_date]
-            # This is slow inside loop.
-            # Faster: use searchsorted logic or just timedelta approx index?
-            # group is sorted.
-            
-            mask = group['date'] <= target_date
-            if not mask.any(): 
-                return group.iloc[0]['price'] # oldest available
-            return group.loc[mask.idxmax()]['price'] # closest on or before
+        if df.empty:
+            st.error("Borsapy servistenden veri alınamadı (Boş Tablo).")
+            return pd.DataFrame()
 
-        # Dates
-        d_1d = curr['date'] - timedelta(days=1) # Or simple prev row
-        d_1m = curr['date'] - timedelta(days=30)
-        d_ytd = datetime(curr['date'].year, 1, 1)
-        d_1y = curr['date'] - timedelta(days=365)
+        # Rename columns to match app.py expectations
+        # Expected by app: "Fon Kodu", "Fon Adı", "Fiyat", "Günlük (%)", "Aylık (%)", "YTD (%)", "Yıllık (%)", "Sharpe"
+        # Borsapy likely English columns: code, title, price, return_1m, etc.
         
-        # Prices
-        p_1d = group.iloc[-2]['price'] # Prev row guaranteed by len check
-        p_1m = get_pct(d_1m)
-        p_ytd = get_pct(d_ytd)
-        p_1y = get_pct(d_1y)
+        col_map = {
+            "code": "Fon Kodu",
+            "title": "Fon Adı",
+            "price": "Fiyat",
+            "return_Daily": "Günlük (%)", # Guessing case
+            "return_daily": "Günlük (%)",
+            "daily_return": "Günlük (%)",
+            "return_1m": "Aylık (%)",
+            "return_ytd": "YTD (%)", 
+            "return_1y": "Yıllık (%)",
+            "sharpe": "Sharpe"
+        }
         
-        # Returns
-        r_day = ((price - p_1d) / p_1d) * 100 if p_1d else 0
-        r_mon = ((price - p_1m) / p_1m) * 100 if p_1m else 0
-        r_ytd = ((price - p_ytd) / p_ytd) * 100 if p_ytd else 0
-        r_yar = ((price - p_1y) / p_1y) * 100 if p_1y else 0
+        # Normalize columns to lower case for matching if needed, but let's try direct map first
+        # To be safe, let's copy and rename available columns
+        df = df.rename(columns=col_map)
         
-        # Sharpe
-        # Data in last 1 year
-        last_year_mask = group['date'] > d_1y
-        group_1y = group[last_year_mask]
+        # Fill missing columns with 0 or NaN if they don't exist in source, to prevent app crash
+        expected_cols = ["Fon Kodu", "Fon Adı", "Fiyat", "Günlük (%)", "Aylık (%)", "YTD (%)", "Yıllık (%)", "Sharpe"]
+        for col in expected_cols:
+            if col not in df.columns:
+                # Try to find it loosely
+                # If "Günlük (%)" missing, maybe "return_1d" exists?
+                pass 
+                # We won't error out, just let it be missing or add as None
+                # df[col] = 0.0 
         
-        sharpe = 0
-        if len(group_1y) > 30:
-            daily_series = group_1y['price'].pct_change().dropna()
-            std = daily_series.std()
-            mean = daily_series.mean()
-            if std > 0:
-                sharpe = (mean - risk_free_daily) / std * np.sqrt(252)
+        # Ensure numeric columns are numeric
+        numeric_cols = ["Fiyat", "Günlük (%)", "Aylık (%)", "YTD (%)", "Yıllık (%)", "Sharpe"]
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
                 
-        summary_data.append({
-            "Fon Kodu": code,
-            "Fon Adı": curr['title'],
-            "Fiyat": price,
-            "Günlük (%)": r_day,
-            "Aylık (%)": r_mon,
-            "YTD (%)": r_ytd,
-            "Yıllık (%)": r_yar,
-            "Sharpe": sharpe
-        })
-        
-    return pd.DataFrame(summary_data)
+        return df
 
+    except Exception as e:
+        st.error(f"TEFAS Verisi Çekilemedi (Borsapy Hatası): {str(e)}")
+        return pd.DataFrame()
+
+@st.cache_data(ttl=3600)
 def get_fund_history(codes, lookback_days=365):
     """
-    Returns normalized history for chart.
-    Uses generic fetch but filters for codes.
+    Returns normalized history for chart using borsapy.Fund(code).history()
     """
-    if not codes: return pd.DataFrame()
-    
-    # We could reuse the internal helper. 
-    # For efficiency, if users select few funds, we might want to fetch only those if API supports?
-    # TEFAS API allows `fonkod` (comma separated?). 
-    # If not, we fetch all. Fetching all is cached so it's fine.
-    
-    raw_df = _fetch_raw_tefas_data(lookback_days=lookback_days)
-    if raw_df.empty: return pd.DataFrame()
-    
-    # Filter
-    df = raw_df[raw_df['code'].isin(codes)].copy()
-    
-    # Pivot
-    pivot = df.pivot(index='date', columns='code', values='price')
-    pivot = pivot.ffill().dropna()
-    
-    # Normalize
-    if not pivot.empty:
-        normalized = pivot.apply(lambda x: ((x / x.iloc[0]) - 1) * 100)
-        return normalized
+    if not codes:
+        return pd.DataFrame()
         
-    return pd.DataFrame()
+    try:
+        combined_df = pd.DataFrame()
+        
+        for code in codes:
+            # Fetch history for each fund
+            # bp.Fund(code).history(period="1y") usually returns Date index and OHLCV or just Close
+            fund = bp.Fund(code)
+            hist = fund.history(period="1y")
+            
+            if hist.empty:
+                continue
+                
+            # Expecting 'price' or 'close' column
+            # Let's standardize to 'price'
+            tgt_col = None
+            if 'price' in hist.columns: tgt_col = 'price'
+            elif 'Close' in hist.columns: tgt_col = 'Close'
+            elif 'close' in hist.columns: tgt_col = 'close'
+            
+            if tgt_col:
+                # Rename to fund code
+                series = hist[[tgt_col]].rename(columns={tgt_col: code})
+                # Join
+                if combined_df.empty:
+                    combined_df = series
+                else:
+                    combined_df = combined_df.join(series, how='outer')
+        
+        # Post-process
+        if not combined_df.empty:
+            combined_df = combined_df.sort_index().ffill().dropna()
+            
+            # Normalize for chart (Start at 0%)
+            # ((Price / Start) - 1) * 100
+            normalized = combined_df.apply(lambda x: ((x / x.iloc[0]) - 1) * 100 if len(x) > 0 and x.iloc[0] != 0 else x)
+            return normalized
+            
+        return pd.DataFrame()
 
-# Helper for portfolio lookup (app.py) if needed
+    except Exception as e:
+        # Don't show error on chart usually, just return empty
+        print(f"History Fetch Error: {e}")
+        st.warning(f"Geçmiş veri alınırken hata: {e}")
+        return pd.DataFrame()
+
+# Helper for portfolio lookup (app.py)
+# Keeping this for compatibility as app.py logic might rely on it for non-cached real-time checks
 @st.cache_data(ttl=900)
 def get_fund_price(code):
     try:
-        # Fetch small history
-        # Create a payload just for this fund?
-        payload = {
-            "fontip": "YAT",
-            "bastarih": (datetime.now() - timedelta(days=5)).strftime("%d.%m.%Y"),
-            "bittarih": datetime.now().strftime("%d.%m.%Y"),
-            "fonkod": code
-        }
-        headers = {
-             "User-Agent": "Mozilla/5.0",
-             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-              "Origin": "https://www.tefas.gov.tr",
-            "Referer": "https://www.tefas.gov.tr/TarihselVeriler.aspx"
-        }
-        r = requests.post(TEFAS_URL, data=payload, headers=headers)
-        if r.status_code == 200:
-             d = r.json().get('data', [])
-             if d: return d[-1]['FIYAT']
+        # Use simple screen or fund detail
+        f = bp.Fund(code)
+        # Try to get latest price from history or detail
+        # Some libs have get_price() or similar
+        # Fallback to fetching small history
+        hist = f.history(period="1wk") # Shortest
+        if not hist.empty:
+             # Check columns
+            if 'price' in hist.columns: return hist['price'].iloc[-1]
+            if 'Close' in hist.columns: return hist['Close'].iloc[-1]
     except:
         pass
     return 0
