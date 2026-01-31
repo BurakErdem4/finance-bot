@@ -10,63 +10,95 @@ from datetime import datetime
 @st.cache_data(ttl=3600)
 def fetch_tefas_data():
     """
-    Fetches latest data using borsapy for both Investment (YAT) and Pension (EMK) funds,
-    combines them, and adapts it to the app's expected format.
+    Fetches data for Investment (YAT) and Pension (EMK) funds separately,
+    standardizes their columns individually to prevent merge issues,
+    and returns a combined DataFrame.
     """
+    column_mapping = {
+        'fund_code': 'Fon Kodu',
+        'name': 'Fon Adı',
+        'price': 'Fiyat',
+        'return_1m': 'Aylık (%)',
+        'return_3m': '3 Aylık (%)',
+        'return_6m': '6 Aylık (%)',
+        'return_1y': 'Yıllık (%)',
+        'return_ytd': 'YTD (%)'
+    }
+    
+    # Target columns to keep after renaming
+    target_columns = list(column_mapping.values()) + ['Sharpe']
+    
+    def process_dataframe(df_in):
+        if df_in.empty:
+            return pd.DataFrame(columns=target_columns)
+        
+        # 1. Provide Sharpe standardization first
+        if 'sharpe_ratio' in df_in.columns:
+            df_in = df_in.rename(columns={'sharpe_ratio': 'Sharpe'})
+        elif 'sharpe' in df_in.columns:
+            df_in = df_in.rename(columns={'sharpe': 'Sharpe'})
+        else:
+            df_in['Sharpe'] = 0.0
+
+        # 2. Rename main columns
+        df_in = df_in.rename(columns=column_mapping)
+        
+        # 3. Add missing columns with default values 0.0 or ""
+        for col in target_columns:
+            if col not in df_in.columns:
+                # If it's a string column like Title/Code but missing (unlikely), empty string
+                if col in ['Fon Kodu', 'Fon Adı']:
+                    df_in[col] = "Bilinmiyor"
+                else:
+                    df_in[col] = 0.0
+                    
+        # 4. Filter and reorder to strictly match target_columns
+        return df_in[target_columns]
+
     try:
-        # 1. Fetch Investment Funds
+        # A. Fetch Investment Funds
         try:
-            df_yat = bp.screen_funds(fund_type="YAT")
-        except:
-            df_yat = pd.DataFrame()
+            raw_yat = bp.screen_funds(fund_type="YAT")
+            df_yat = process_dataframe(raw_yat)
+            len_yat = len(df_yat)
+        except Exception as e:
+            print(f"Yatırım fonları çekilemedi: {e}")
+            df_yat = pd.DataFrame(columns=target_columns)
+            len_yat = 0
 
-        # 2. Fetch Pension Funds
+        # B. Fetch Pension Funds
         try:
-            df_emk = bp.screen_funds(fund_type="EMK")
-        except:
-            df_emk = pd.DataFrame()
+            raw_emk = bp.screen_funds(fund_type="EMK")
+            df_emk = process_dataframe(raw_emk)
+            len_emk = len(df_emk)
+        except Exception as e:
+            print(f"Emeklilik fonları çekilemedi: {e}")
+            df_emk = pd.DataFrame(columns=target_columns)
+            len_emk = 0
+            
+        # Debug Toast
+        st.toast(f"Veri Alındı: {len_yat} Yatırım, {len_emk} Emeklilik Fonu")
 
-        # 3. Combine DataFrames
-        # Use ignore_index=True to reset index
+        # C. Combine
         df = pd.concat([df_yat, df_emk], ignore_index=True)
         
         if df.empty:
-            st.error("Borsapy servisinden veri alınamadı.")
+            st.error("Hiçbir fon verisi alınamadı (API yanıt vermiyor olabilir).")
             return pd.DataFrame()
-
-        # 4. Rename columns to match app.py expectations
-        column_mapping = {
-            'fund_code': 'Fon Kodu',
-            'name': 'Fon Adı',
-            'price': 'Fiyat',
-            'return_1m': 'Aylık (%)',
-            'return_3m': '3 Aylık (%)',
-            'return_6m': '6 Aylık (%)',
-            'return_1y': 'Yıllık (%)',
-            'return_ytd': 'YTD (%)'
-        }
-        
-        # Apply renaming
-        df = df.rename(columns=column_mapping)
-        
-        # Ensure 'Sharpe' column exists if possible
-        if 'sharpe' in df.columns:
-            df = df.rename(columns={'sharpe': 'Sharpe'})
-        elif 'sharpe_ratio' in df.columns:
-            df = df.rename(columns={'sharpe_ratio': 'Sharpe'})
             
-        # 5. Fill missing numeric columns to prevent app errors
-        expected_numeric = ["Fiyat", "Günlük (%)", "Aylık (%)", "YTD (%)", "Yıllık (%)", "Sharpe"]
-        for col in expected_numeric:
-            if col not in df.columns:
-                 df[col] = 0.0
-            else:
+        # D. Final Clean-up (Numeric conversions)
+        numeric_cols = ["Fiyat", "Günlük (%)", "Aylık (%)", "YTD (%)", "Yıllık (%)", "Sharpe"]
+        for col in numeric_cols:
+             if col in df.columns:
                  df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-                
+
+        # Drop duplicates if any overlap
+        df = df.drop_duplicates(subset=['Fon Kodu'])
+
         return df
 
     except Exception as e:
-        st.error(f"TEFAS Verisi Çekilemedi (Borsapy Hatası): {str(e)}")
+        st.error(f"Kritik Hata (fetch_tefas_data): {str(e)}")
         return pd.DataFrame()
 
     except Exception as e:
