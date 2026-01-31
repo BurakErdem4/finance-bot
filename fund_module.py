@@ -10,22 +10,37 @@ from datetime import datetime
 @st.cache_data(ttl=3600)
 def fetch_tefas_data():
     """
-    Fetches latest data using borsapy and adapts it to the app's expected format.
+    Fetches latest data using borsapy for both Investment (YAT) and Pension (EMK) funds,
+    combines them, and adapts it to the app's expected format.
     """
     try:
-        # Fetch data using borsapy
-        # fund_type="YAT" covers investment funds (Yatırım Fonları)
-        df = bp.screen_funds(fund_type="YAT")
-        
-        if df.empty:
-            st.error("Borsapy servistenden veri alınamadı (Boş Tablo).")
-            return pd.DataFrame()
+        # 1. Fetch Investment Funds
+        try:
+            df_yat = bp.screen_funds(fund_type="YAT")
+            if not df_yat.empty:
+                df_yat["Tür"] = "Yatırım"
+        except Exception as e:
+            print(f"Yatırım fonları çekilemedi: {e}")
+            df_yat = pd.DataFrame()
 
-        # Rename columns to match app.py expectations
-        # Expected by app: "Fon Kodu", "Fon Adı", "Fiyat", "Günlük (%)", "Aylık (%)", "YTD (%)", "Yıllık (%)", "Sharpe"
-        # Borsapy likely English columns: code, title, price, return_1m, etc.
+        # 2. Fetch Pension Funds
+        try:
+            df_emk = bp.screen_funds(fund_type="EMK")
+            if not df_emk.empty:
+                df_emk["Tür"] = "Emeklilik"
+        except Exception as e:
+            print(f"Emeklilik fonları çekilemedi: {e}")
+            df_emk = pd.DataFrame()
+
+        # 3. Combine DataFrames
+        if df_yat.empty and df_emk.empty:
+            st.error("Borsapy servisinden veri alınamadı (Yatırım ve Emeklilik fonları boş).")
+            return pd.DataFrame()
         
-        # Rename columns to match app.py expectations using strict mapping
+        df = pd.concat([df_yat, df_emk], ignore_index=True)
+
+        # 4. Rename columns to match app.py expectations
+        # Expected by app: "Fon Kodu", "Fon Adı", "Fiyat", "Günlük (%)", "Aylık (%)", "YTD (%)", "Yıllık (%)", "Sharpe"
         column_mapping = {
             'fund_code': 'Fon Kodu',
             'name': 'Fon Adı',
@@ -40,22 +55,26 @@ def fetch_tefas_data():
         # Apply renaming
         df = df.rename(columns=column_mapping)
         
-        # Ensure 'Sharpe' column exists if possible (borsapy might call it 'sharpe_ratio' or 'sharpe')
-        # If not in mapping, we check loosely
+        # Ensure 'Sharpe' column exists if possible
         if 'sharpe' in df.columns:
             df = df.rename(columns={'sharpe': 'Sharpe'})
         elif 'sharpe_ratio' in df.columns:
             df = df.rename(columns={'sharpe_ratio': 'Sharpe'})
             
-        # Fill missing numeric columns to prevent app errors
+        # 5. Clean up and Fill missing numeric columns
         expected_numeric = ["Fiyat", "Günlük (%)", "Aylık (%)", "YTD (%)", "Yıllık (%)", "Sharpe"]
         for col in expected_numeric:
             if col not in df.columns:
-                 # Initialize with 0 if missing (e.g. Daily might not be available in screen)
+                 # Initialize with 0 if missing
                  df[col] = 0.0
             else:
                  df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-                
+        
+        # Keep only relevant columns if possible, but keeping all is safer for now.
+        # Ensure 'Tür' is present (it should be)
+        if 'Tür' not in df.columns:
+            df['Tür'] = 'Belirsiz'
+
         return df
 
     except Exception as e:
