@@ -13,7 +13,7 @@ def fetch_tefas_data():
     try:
         # 1. Yatırım Fonlarını Çek
         try:
-            df_yat = bp.screen_funds(fund_type="YAT")
+            df_yat = bp.screen_funds(fund_type="YAT", limit=10000)
             if not df_yat.empty:
                 df_yat['Tür'] = 'Yatırım'
         except:
@@ -21,7 +21,7 @@ def fetch_tefas_data():
 
         # 2. Emeklilik Fonlarını Çek
         try:
-            df_emk = bp.screen_funds(fund_type="EMK")
+            df_emk = bp.screen_funds(fund_type="EMK", limit=10000)
             if not df_emk.empty:
                 df_emk['Tür'] = 'Emeklilik'
         except:
