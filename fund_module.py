@@ -17,30 +17,24 @@ def fetch_tefas_data():
         # 1. Fetch Investment Funds
         try:
             df_yat = bp.screen_funds(fund_type="YAT")
-            if not df_yat.empty:
-                df_yat["Tür"] = "Yatırım"
-        except Exception as e:
-            print(f"Yatırım fonları çekilemedi: {e}")
+        except:
             df_yat = pd.DataFrame()
 
         # 2. Fetch Pension Funds
         try:
             df_emk = bp.screen_funds(fund_type="EMK")
-            if not df_emk.empty:
-                df_emk["Tür"] = "Emeklilik"
-        except Exception as e:
-            print(f"Emeklilik fonları çekilemedi: {e}")
+        except:
             df_emk = pd.DataFrame()
 
         # 3. Combine DataFrames
-        if df_yat.empty and df_emk.empty:
-            st.error("Borsapy servisinden veri alınamadı (Yatırım ve Emeklilik fonları boş).")
-            return pd.DataFrame()
-        
+        # Use ignore_index=True to reset index
         df = pd.concat([df_yat, df_emk], ignore_index=True)
+        
+        if df.empty:
+            st.error("Borsapy servisinden veri alınamadı.")
+            return pd.DataFrame()
 
         # 4. Rename columns to match app.py expectations
-        # Expected by app: "Fon Kodu", "Fon Adı", "Fiyat", "Günlük (%)", "Aylık (%)", "YTD (%)", "Yıllık (%)", "Sharpe"
         column_mapping = {
             'fund_code': 'Fon Kodu',
             'name': 'Fon Adı',
@@ -61,21 +55,19 @@ def fetch_tefas_data():
         elif 'sharpe_ratio' in df.columns:
             df = df.rename(columns={'sharpe_ratio': 'Sharpe'})
             
-        # 5. Clean up and Fill missing numeric columns
+        # 5. Fill missing numeric columns to prevent app errors
         expected_numeric = ["Fiyat", "Günlük (%)", "Aylık (%)", "YTD (%)", "Yıllık (%)", "Sharpe"]
         for col in expected_numeric:
             if col not in df.columns:
-                 # Initialize with 0 if missing
                  df[col] = 0.0
             else:
                  df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-        
-        # Keep only relevant columns if possible, but keeping all is safer for now.
-        # Ensure 'Tür' is present (it should be)
-        if 'Tür' not in df.columns:
-            df['Tür'] = 'Belirsiz'
-
+                
         return df
+
+    except Exception as e:
+        st.error(f"TEFAS Verisi Çekilemedi (Borsapy Hatası): {str(e)}")
+        return pd.DataFrame()
 
     except Exception as e:
         st.error(f"TEFAS Verisi Çekilemedi (Borsapy Hatası): {str(e)}")
