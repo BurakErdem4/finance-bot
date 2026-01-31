@@ -538,6 +538,10 @@ elif page == "Fon Analizi":
         df_funds = fetch_tefas_data()
         
     if not df_funds.empty:
+        # Default Sorting: Monthly Return Descending (User Request)
+        if 'Aylık (%)' in df_funds.columns:
+            df_funds = df_funds.sort_values(by='Aylık (%)', ascending=False)
+
         # Layout: Tabs for different views
         ftab1, ftab2 = st.tabs(["📋 Fon Tarama & Sıralama", "📈 Fon Karşılaştırma"])
         
@@ -583,7 +587,8 @@ elif page == "Fon Analizi":
             grad_subset = [c for c in grad_cols if c in filtered_df.columns]
             
             if grad_subset:
-               styler = styler.background_gradient(subset=grad_subset, cmap="RdYlGn", vmin=-5, vmax=100)
+               # Improve Color Coding: Negative=Red, Positive=Green (0 point balanced)
+               styler = styler.background_gradient(subset=grad_subset, cmap="RdYlGn", vmin=-5, vmax=15)
 
             st.dataframe(
                 styler,
